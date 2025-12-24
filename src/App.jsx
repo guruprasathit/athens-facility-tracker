@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Mail } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App = () => {
@@ -15,6 +15,8 @@ const App = () => {
   const [status, setStatus] = useState('loading');
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
 
+  const API_URL = '/api';
+
   const pri = { low: { c: '#10b981', b: '#d1fae5' }, medium: { c: '#f59e0b', b: '#fef3c7' }, high: { c: '#ef4444', b: '#fee2e2' }, critical: { c: '#dc2626', b: '#fee2e2' } };
   const cols = [{ id: 'backlog', t: 'Backlog', I: Circle }, { id: 'in-progress', t: 'In Progress', I: Clock }, { id: 'done', t: 'Done', I: CheckCircle2 }];
 
@@ -29,40 +31,94 @@ const App = () => {
     ];
   };
 
-  const log = (a, t, d = '') => [{ id: Date.now(), timestamp: new Date().toISOString(), user: user.email, userName: user.name, action: a, taskTitle: t, details: d }, ...logs];
-
-  useEffect(() => { if (user) load(); }, [user]);
-
-  const load = async () => {
-    try {
-      setStatus('loading');
-      const t = await window.storage.get('athens-tasks');
-      const l = await window.storage.get('athens-logs');
-      if (t?.value) setTasks(JSON.parse(t.value)); else { const s = samples(); setTasks(s); await window.storage.set('athens-tasks', JSON.stringify(s)); }
-      if (l?.value) setLogs(JSON.parse(l.value));
-      setStatus('ready');
-    } catch (e) { setTasks(samples()); setStatus('ready'); }
+  const log = (a, t, d = '') => {
+    const newLog = { id: Date.now(), timestamp: new Date().toISOString(), user: user.email, userName: user.name, action: a, taskTitle: t, details: d };
+    const updatedLogs = [newLog, ...logs];
+    setLogs(updatedLogs);
+    return updatedLogs;
   };
 
-  const save = async (t, l = null) => {
+  useEffect(() => { 
+    if (user) {
+      loadData();
+      const interval = setInterval(loadData, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  const loadData = async () => {
+    try {
+      setStatus('loading');
+      
+      const tasksRes = await fetch(`${API_URL}/tasks`);
+      const tasksData = await tasksRes.json();
+      
+      if (tasksData && tasksData.length > 0) {
+        setTasks(tasksData);
+      } else {
+        const sampleTasks = samples();
+        await saveTasks(sampleTasks);
+        setTasks(sampleTasks);
+      }
+      
+      const logsRes = await fetch(`${API_URL}/logs`);
+      const logsData = await logsRes.json();
+      
+      if (logsData && logsData.length > 0) {
+        setLogs(logsData);
+      }
+      
+      setStatus('ready');
+    } catch (e) {
+      console.error('Error loading data:', e);
+      setTasks(samples());
+      setStatus('error');
+    }
+  };
+
+  const saveTasks = async (tasksToSave) => {
     try {
       setStatus('syncing');
-      await window.storage.set('athens-tasks', JSON.stringify(t));
-      if (l) await window.storage.set('athens-logs', JSON.stringify(l));
-      setTimeout(() => setStatus('ready'), 1000);
-    } catch (e) { setStatus('error'); }
+      
+      await fetch(`${API_URL}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks: tasksToSave })
+      });
+      
+      setStatus('ready');
+    } catch (e) {
+      console.error('Error saving tasks:', e);
+      setStatus('error');
+    }
+  };
+
+  const saveLogs = async (logsToSave) => {
+    try {
+      await fetch(`${API_URL}/logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logs: logsToSave })
+      });
+    } catch (e) {
+      console.error('Error saving logs:', e);
+    }
   };
 
   const login = () => {
     if (!email || !name) { alert('Enter name and email'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Invalid email'); return; }
     const u = { email: email.toLowerCase(), name };
-    setUser(u); setLoginModal(false);
-    setLogs([{ id: Date.now(), timestamp: new Date().toISOString(), user: u.email, userName: u.name, action: 'LOGIN', taskTitle: '', details: 'User logged in' }]);
+    setUser(u);
+    setLoginModal(false);
+    
+    const loginLog = { id: Date.now(), timestamp: new Date().toISOString(), user: u.email, userName: u.name, action: 'LOGIN', taskTitle: '', details: 'User logged in' };
+    setLogs([loginLog]);
   };
 
   const logout = () => {
-    const l = log('LOGOUT', '', 'User logged out'); setLogs(l); save(tasks, l);
+    const l = log('LOGOUT', '', 'User logged out');
+    saveLogs(l);
     setTimeout(() => { setUser(null); setLoginModal(true); setTasks([]); setLogs([]); }, 500);
   };
 
@@ -71,29 +127,43 @@ const App = () => {
     setModal(true);
   };
 
-  const saveTasks = () => {
+  const saveTask = async () => {
     if (!form.title || !form.dueDate) { alert('Fill Title and Due Date'); return; }
-    let u, l;
+    let updatedTasks, updatedLogs;
+    
     if (edit) {
-      u = tasks.map(t => t.id === edit.id ? { ...form, id: edit.id, lastModifiedBy: user.email } : t);
-      l = log('UPDATED', form.title, 'Task updated');
+      updatedTasks = tasks.map(t => t.id === edit.id ? { ...form, id: edit.id, lastModifiedBy: user.email } : t);
+      updatedLogs = log('UPDATED', form.title, 'Task updated');
     } else {
-      u = [...tasks, { ...form, id: Date.now(), createdAt: new Date().toISOString(), createdBy: user.email, createdByName: user.name }];
-      l = log('CREATED', form.title, `Priority: ${form.priority}`);
+      const newTask = { ...form, id: Date.now(), createdAt: new Date().toISOString(), createdBy: user.email, createdByName: user.name };
+      updatedTasks = [...tasks, newTask];
+      updatedLogs = log('CREATED', form.title, `Priority: ${form.priority}`);
     }
-    setTasks(u); setLogs(l); save(u, l); setModal(false);
+    
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+    await saveLogs(updatedLogs);
+    setModal(false);
   };
 
-  const del = (id) => {
-    const t = tasks.find(x => x.id === id); if (!t || !confirm('Delete?')) return;
-    const u = tasks.filter(x => x.id !== id); const l = log('DELETED', t.title, '');
-    setTasks(u); setLogs(l); save(u, l);
+  const del = async (id) => {
+    const t = tasks.find(x => x.id === id);
+    if (!t || !confirm('Delete?')) return;
+    
+    const updatedTasks = tasks.filter(x => x.id !== id);
+    const updatedLogs = log('DELETED', t.title, '');
+    
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+    await saveLogs(updatedLogs);
   };
 
-  const move = (id, ns) => {
-    const t = tasks.find(x => x.id === id); if (!t) return;
+  const move = async (id, ns) => {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    
     const now = new Date();
-    const u = tasks.map(x => {
+    const updatedTasks = tasks.map(x => {
       if (x.id === id) {
         const n = { ...x, status: ns };
         if (ns === 'in-progress' && !x.startDate) {
@@ -108,11 +178,23 @@ const App = () => {
       }
       return x;
     });
-    const l = log(ns === 'done' ? 'COMPLETED' : 'MOVED', t.title, `To ${ns}`);
-    setTasks(u); setLogs(l); save(u, l);
+    
+    const updatedLogs = log(ns === 'done' ? 'COMPLETED' : 'MOVED', t.title, `To ${ns}`);
+    
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+    await saveLogs(updatedLogs);
   };
 
-  const clear = async () => { if (confirm('Delete all?')) { await window.storage.delete('athens-tasks'); const l = log('SYSTEM', 'All cleared', ''); setTasks([]); setLogs(l); save([], l); } };
+  const clear = async () => {
+    if (confirm('Delete all tasks?')) {
+      const updatedLogs = log('SYSTEM', 'All tasks cleared', '');
+      setTasks([]);
+      
+      await fetch(`${API_URL}/tasks`, { method: 'DELETE' });
+      await saveLogs(updatedLogs);
+    }
+  };
 
   const exp = () => {
     const td = tasks.map(t => ({ Title: t.title, Desc: t.description, Priority: t.priority, Status: t.status, Due: t.dueDate, Created: t.createdBy }));
@@ -121,7 +203,9 @@ const App = () => {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(td), 'Tasks');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ld), 'Logs');
     XLSX.writeFile(wb, `Athens_${new Date().toISOString().split('T')[0]}.xlsx`);
-    const l = log('EXPORTED', '', 'Data exported'); setLogs(l); save(tasks, l);
+    
+    const updatedLogs = log('EXPORTED', '', 'Data exported');
+    saveLogs(updatedLogs);
   };
 
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
@@ -145,9 +229,9 @@ const App = () => {
             <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Facility Management</p></div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <div style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><User size={16} />{user.name}</div>
-              <div style={{ padding: '0.75rem 1rem', background: '#d1fae5', color: '#10b981', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
+              <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
               <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>
-              <button onClick={load} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
+              <button onClick={loadData} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
               <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>
               <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>
               <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>
@@ -188,7 +272,7 @@ const App = () => {
                     } else if (daysUntilDue === 1) {
                       dueDateDisplay = 'Due tomorrow';
                     } else if (daysUntilDue > 1) {
-                      dueDateDisplay = `${daysUntilDue} ${daysUntilDue === 1 ? 'day' : 'days'} remaining`;
+                      dueDateDisplay = `${daysUntilDue} days remaining`;
                     }
                     
                     return (
@@ -272,7 +356,7 @@ const App = () => {
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveTasks} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
             </div>
           </div>
         </div>
