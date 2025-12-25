@@ -13,6 +13,8 @@ const App = () => {
   const [name, setName] = useState('');
   const [edit, setEdit] = useState(null);
   const [status, setStatus] = useState('loading');
+  const [loginError, setLoginError] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
 
   const API_URL = '/api';
@@ -105,21 +107,128 @@ const App = () => {
     }
   };
 
-  const login = () => {
-    if (!email || !name) { alert('Enter name and email'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Invalid email'); return; }
-    const u = { email: email.toLowerCase(), name };
-    setUser(u);
-    setLoginModal(false);
+  const saveUsers = async (usersToSave) => {
+    try {
+      await fetch(`${API_URL}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: usersToSave })
+      });
+    } catch (e) {
+      console.error('Error saving users:', e);
+    }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const usersRes = await fetch(`${API_URL}/users`);
+      const usersData = await usersRes.json();
+      return usersData || [];
+    } catch (e) {
+      console.error('Error loading users:', e);
+      return [];
+    }
+  };
+
+  const login = async () => {
+    setLoginError('');
     
-    const loginLog = { id: Date.now(), timestamp: new Date().toISOString(), user: u.email, userName: u.name, action: 'LOGIN', taskTitle: '', details: 'User logged in' };
-    setLogs([loginLog]);
+    if (!email || !name) { 
+      setLoginError('Please enter both name and email'); 
+      return; 
+    }
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { 
+      setLoginError('Please enter a valid email address'); 
+      return; 
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const trimmedName = name.trim();
+    
+    // Load existing users
+    const existingUsers = await loadUsers();
+    const existingUser = existingUsers.find(u => u.email === normalizedEmail);
+
+    if (isRegistering) {
+      // Registration mode
+      if (existingUser) {
+        setLoginError('This email is already registered. Please sign in instead.');
+        return;
+      }
+
+      // Create new user
+      const newUser = { 
+        email: normalizedEmail, 
+        name: trimmedName,
+        registeredAt: new Date().toISOString()
+      };
+      
+      const updatedUsers = [...existingUsers, newUser];
+      await saveUsers(updatedUsers);
+      
+      setUser(newUser);
+      setLoginModal(false);
+      
+      const loginLog = { 
+        id: Date.now(), 
+        timestamp: new Date().toISOString(), 
+        user: newUser.email, 
+        userName: newUser.name, 
+        action: 'REGISTERED', 
+        taskTitle: '', 
+        details: 'New user registered and logged in' 
+      };
+      setLogs([loginLog]);
+      await saveLogs([loginLog]);
+      
+    } else {
+      // Login mode
+      if (!existingUser) {
+        setLoginError('Email not found. Please register first.');
+        return;
+      }
+
+      if (existingUser.name !== trimmedName) {
+        setLoginError('Name does not match our records for this email.');
+        return;
+      }
+
+      // Login successful
+      setUser(existingUser);
+      setLoginModal(false);
+      
+      const loginLog = { 
+        id: Date.now(), 
+        timestamp: new Date().toISOString(), 
+        user: existingUser.email, 
+        userName: existingUser.name, 
+        action: 'LOGIN', 
+        taskTitle: '', 
+        details: 'User logged in' 
+      };
+      setLogs([loginLog]);
+      await saveLogs([loginLog]);
+    }
+
+    // Clear form
+    setEmail('');
+    setName('');
   };
 
   const logout = () => {
     const l = log('LOGOUT', '', 'User logged out');
     saveLogs(l);
-    setTimeout(() => { setUser(null); setLoginModal(true); setTasks([]); setLogs([]); }, 500);
+    setTimeout(() => { 
+      setUser(null); 
+      setLoginModal(true); 
+      setTasks([]); 
+      setLogs([]);
+      setEmail('');
+      setName('');
+      setLoginError('');
+      setIsRegistering(false);
+    }, 500);
   };
 
   const open = (s = 'backlog', t = null) => {
@@ -213,10 +322,52 @@ const App = () => {
   if (!user) return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: 'white', borderRadius: '16px', padding: '2rem', width: '400px' }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '1rem' }}>Athens Community</h2>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Your Name" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
-        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
-        <button onClick={login} style={{ width: '100%', padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Sign In</button>
+        <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Athens Community</h2>
+        <p style={{ textAlign: 'center', color: '#6b7280', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+          {isRegistering ? 'Create your account' : 'Sign in to continue'}
+        </p>
+        
+        {loginError && (
+          <div style={{ background: '#fee2e2', border: '2px solid #ef4444', color: '#dc2626', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.875rem' }}>
+            {loginError}
+          </div>
+        )}
+        
+        <input 
+          value={name} 
+          onChange={e => setName(e.target.value)} 
+          placeholder="Your Full Name" 
+          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} 
+          onKeyPress={e => e.key === 'Enter' && login()}
+        />
+        <input 
+          value={email} 
+          onChange={e => setEmail(e.target.value)} 
+          placeholder="Email Address" 
+          type="email"
+          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} 
+          onKeyPress={e => e.key === 'Enter' && login()}
+        />
+        
+        <button 
+          onClick={login} 
+          style={{ width: '100%', padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' }}
+        >
+          {isRegistering ? 'Register' : 'Sign In'}
+        </button>
+        
+        <div style={{ textAlign: 'center', fontSize: '0.875rem', color: '#6b7280' }}>
+          {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <button 
+            onClick={() => {
+              setIsRegistering(!isRegistering);
+              setLoginError('');
+            }} 
+            style={{ background: 'none', border: 'none', color: '#667eea', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            {isRegistering ? 'Sign In' : 'Register'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -336,55 +487,56 @@ const App = () => {
                       {task.status === 'done' && <button onClick={() => move(task.id, 'in-progress')} style={{ width: '100%', padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Reopen</button>}
                     </div>
                     );
-                  })}
-                </div>
-                <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>
+              })}
+            </div>
+            <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+
+  {modal && (
+    <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem' }}>
+        <h3 style={{ marginBottom: '1rem' }}>{edit ? 'Edit' : 'Add'} Task</h3>
+        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
+        <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit' }} />
+        <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
+        <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
+        <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {logModal && (
+    <div onClick={() => setLogModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '700px', maxHeight: '80vh', overflow: 'auto', padding: '2rem' }}>
+        <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={24} />Activity Log</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {logs.map(l => {
+            const colors = { CREATED: '#10b981', UPDATED: '#3b82f6', DELETED: '#ef4444', COMPLETED: '#059669', MOVED: '#f59e0b', LOGIN: '#7c3aed', LOGOUT: '#6b7280', EXPORTED: '#0284c7', SYSTEM: '#6b7280', REGISTERED: '#8b5cf6' };
+            return (
+              <div key={l.id} style={{ padding: '1rem', background: '#f9fafb', borderRadius: '8px', borderLeft: `4px solid ${colors[l.action] || '#6b7280'}` }}>
+                <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem' }}>{new Date(l.timestamp).toLocaleString()}</div>
+                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{l.userName} - {l.action}</div>
+                {l.taskTitle && <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Task: {l.taskTitle}</div>}
+                {l.details && <div style={{ fontSize: '0.875rem', color: '#6b7280', fontStyle: 'italic' }}>{l.details}</div>}
               </div>
             );
           })}
         </div>
+        <button onClick={() => setLogModal(false)} style={{ width: '100%', padding: '0.75rem', marginTop: '1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Close</button>
       </div>
-
-      {modal && (
-        <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem' }}>
-            <h3 style={{ marginBottom: '1rem' }}>{edit ? 'Edit' : 'Add'} Task</h3>
-            <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
-            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit' }} />
-            <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
-            <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} />
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {logModal && (
-        <div onClick={() => setLogModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '700px', maxHeight: '80vh', overflow: 'auto', padding: '2rem' }}>
-            <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Activity size={24} />Activity Log</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {logs.map(l => {
-                const colors = { CREATED: '#10b981', UPDATED: '#3b82f6', DELETED: '#ef4444', COMPLETED: '#059669', MOVED: '#f59e0b', LOGIN: '#7c3aed', LOGOUT: '#6b7280', EXPORTED: '#0284c7', SYSTEM: '#6b7280' };
-                return (
-                  <div key={l.id} style={{ padding: '1rem', background: '#f9fafb', borderRadius: '8px', borderLeft: `4px solid ${colors[l.action] || '#6b7280'}` }}>
-                    <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem' }}>{new Date(l.timestamp).toLocaleString()}</div>
-                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{l.userName} - {l.action}</div>
-                    {l.taskTitle && <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>Task: {l.taskTitle}</div>}
-                    {l.details && <div style={{ fontSize: '0.875rem', color: '#6b7280', fontStyle: 'italic' }}>{l.details}</div>}
-                  </div>
-                );
-              })}
-            </div>
-            <button onClick={() => setLogModal(false)} style={{ width: '100%', padding: '0.75rem', marginTop: '1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Close</button>
-          </div>
-        </div>
-      )}
     </div>
-  );
+  )}
+</div>
+);
 };
+
 
 export default App;
