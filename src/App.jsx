@@ -11,6 +11,8 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [edit, setEdit] = useState(null);
   const [status, setStatus] = useState('loading');
   const [loginError, setLoginError] = useState('');
@@ -132,100 +134,99 @@ const App = () => {
 
   const login = async () => {
     setLoginError('');
-    
-    if (!email || !name) { 
-      setLoginError('Please enter both name and email'); 
-      return; 
-    }
-    
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { 
-      setLoginError('Please enter a valid email address'); 
-      return; 
+
+    if (!email || !password) {
+      setLoginError('Please enter your email and password');
+      return;
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-    const trimmedName = name.trim();
-    
-    // Load existing users
-    const existingUsers = await loadUsers();
-    const existingUser = existingUsers.find(u => u.email === normalizedEmail);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setLoginError('Please enter a valid email address');
+      return;
+    }
 
     if (isRegistering) {
-      // Registration mode
-      if (existingUser) {
-        setLoginError('This email is already registered. Please sign in instead.');
+      if (!name.trim()) {
+        setLoginError('Please enter your full name');
+        return;
+      }
+      if (password.length < 6) {
+        setLoginError('Password must be at least 6 characters');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setLoginError('Passwords do not match');
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: isRegistering ? 'register' : 'login',
+          email: email.toLowerCase().trim(),
+          name: name.trim(),
+          password
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setLoginError(data.error || 'Something went wrong. Please try again.');
         return;
       }
 
-      // Create new user
-      const newUser = { 
-        email: normalizedEmail, 
-        name: trimmedName,
-        registeredAt: new Date().toISOString()
-      };
-      
-      const updatedUsers = [...existingUsers, newUser];
-      await saveUsers(updatedUsers);
-      
-      setUser(newUser);
+      const loggedInUser = data.user;
+      setUser(loggedInUser);
       setLoginModal(false);
-      
-      const loginLog = { 
-        id: Date.now(), 
-        timestamp: new Date().toISOString(), 
-        user: newUser.email, 
-        userName: newUser.name, 
-        action: 'REGISTERED', 
-        taskTitle: '', 
-        details: 'New user registered and logged in' 
-      };
-      setLogs([loginLog]);
-      await saveLogs([loginLog]);
-      
-    } else {
-      // Login mode
-      if (!existingUser) {
-        setLoginError('Email not found. Please register first.');
-        return;
-      }
 
-      if (existingUser.name !== trimmedName) {
-        setLoginError('Name does not match our records for this email.');
-        return;
-      }
+      // FIX: Load existing logs first, then prepend new login log
+      const existingLogsRes = await fetch(`${API_URL}/logs`);
+      const existingLogs = await existingLogsRes.json() || [];
 
-      // Login successful
-      setUser(existingUser);
-      setLoginModal(false);
-      
-      const loginLog = { 
-        id: Date.now(), 
-        timestamp: new Date().toISOString(), 
-        user: existingUser.email, 
-        userName: existingUser.name, 
-        action: 'LOGIN', 
-        taskTitle: '', 
-        details: 'User logged in' 
+      const loginLog = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        user: loggedInUser.email,
+        userName: loggedInUser.name,
+        action: isRegistering ? 'REGISTERED' : 'LOGIN',
+        taskTitle: '',
+        details: isRegistering
+          ? `New user registered (${loggedInUser.role})`
+          : 'User logged in'
       };
-      setLogs([loginLog]);
-      await saveLogs([loginLog]);
+
+      const updatedLogs = [loginLog, ...existingLogs];
+      setLogs(updatedLogs);
+      await saveLogs(updatedLogs);
+
+    } catch (e) {
+      console.error('Login error:', e);
+      setLoginError('Connection error. Please try again.');
     }
 
     // Clear form
     setEmail('');
     setName('');
+    setPassword('');
+    setConfirmPassword('');
   };
 
   const logout = () => {
     const l = log('LOGOUT', '', 'User logged out');
     saveLogs(l);
-    setTimeout(() => { 
-      setUser(null); 
-      setLoginModal(true); 
-      setTasks([]); 
+    setTimeout(() => {
+      setUser(null);
+      setLoginModal(true);
+      setTasks([]);
       setLogs([]);
       setEmail('');
       setName('');
+      setPassword('');
+      setConfirmPassword('');
       setLoginError('');
       setIsRegistering(false);
     }, 500);
@@ -256,6 +257,10 @@ const App = () => {
   };
 
   const del = async (id) => {
+    if (user.role !== 'admin') {
+      alert('Only admins can delete tasks.');
+      return;
+    }
     const t = tasks.find(x => x.id === id);
     if (!t || !confirm('Delete?')) return;
     
@@ -296,6 +301,10 @@ const App = () => {
   };
 
   const clear = async () => {
+    if (user.role !== 'admin') {
+      alert('Only admins can clear all tasks.');
+      return;
+    }
     if (confirm('Delete all tasks?')) {
       const updatedLogs = log('SYSTEM', 'All tasks cleared', '');
       setTasks([]);
@@ -326,43 +335,74 @@ const App = () => {
         <p style={{ textAlign: 'center', color: '#6b7280', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
           {isRegistering ? 'Create your account' : 'Sign in to continue'}
         </p>
-        
+
         {loginError && (
           <div style={{ background: '#fee2e2', border: '2px solid #ef4444', color: '#dc2626', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.875rem' }}>
             {loginError}
           </div>
         )}
-        
-        <input 
-          value={name} 
-          onChange={e => setName(e.target.value)} 
-          placeholder="Your Full Name" 
-          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} 
-          onKeyPress={e => e.key === 'Enter' && login()}
-        />
-        <input 
-          value={email} 
-          onChange={e => setEmail(e.target.value)} 
-          placeholder="Email Address" 
+
+        {isRegistering && (
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Your Full Name"
+            style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }}
+            onKeyPress={e => e.key === 'Enter' && login()}
+          />
+        )}
+
+        <input
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="Email Address"
           type="email"
-          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }} 
+          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }}
           onKeyPress={e => e.key === 'Enter' && login()}
         />
-        
-        <button 
-          onClick={login} 
+
+        <input
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="Password"
+          type="password"
+          style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }}
+          onKeyPress={e => e.key === 'Enter' && login()}
+        />
+
+        {isRegistering && (
+          <input
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            placeholder="Confirm Password"
+            type="password"
+            style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }}
+            onKeyPress={e => e.key === 'Enter' && login()}
+          />
+        )}
+
+        {isRegistering && (
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '0.65rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.8rem' }}>
+            ℹ️ The first registered user becomes the <strong>Admin</strong>. Admins can delete and clear tasks.
+          </div>
+        )}
+
+        <button
+          onClick={login}
           style={{ width: '100%', padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' }}
         >
           {isRegistering ? 'Register' : 'Sign In'}
         </button>
-        
+
         <div style={{ textAlign: 'center', fontSize: '0.875rem', color: '#6b7280' }}>
           {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button 
+          <button
             onClick={() => {
               setIsRegistering(!isRegistering);
               setLoginError('');
-            }} 
+              setPassword('');
+              setConfirmPassword('');
+            }}
             style={{ background: 'none', border: 'none', color: '#667eea', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
           >
             {isRegistering ? 'Sign In' : 'Register'}
@@ -379,13 +419,20 @@ const App = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Facility Management</p></div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <div style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><User size={16} />{user.name}</div>
+              <div style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <User size={16} />{user.name}
+                {user.role === 'admin' && (
+                  <span style={{ background: '#fbbf24', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.25rem' }}>ADMIN</span>
+                )}
+              </div>
               <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
               <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>
               <button onClick={loadData} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
               <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>
               <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>
-              <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>
+              {user.role === 'admin' && (
+                <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>
+              )}
               <button onClick={logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Logout</button>
             </div>
           </div>
@@ -432,7 +479,9 @@ const App = () => {
                         <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                           <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>
-                          <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>
+                          {user.role === 'admin' && (
+                            <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>
+                          )}
                         </div>
                       </div>
                       <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{task.description}</div>
