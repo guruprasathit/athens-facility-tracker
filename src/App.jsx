@@ -1,14 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import Login from "./components/Login";
-
-function App() {
-  const [user, setUser] = useState(null);
-
-  if (!user) return <Login onLogin={setUser} />;
-  return <MainApp user={user} />;
-}
 
 const App = () => {
   const [tasks, setTasks] = useState([]);
