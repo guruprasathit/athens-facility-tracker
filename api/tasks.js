@@ -1,9 +1,5 @@
 // api/tasks.js — Athens Community Facility Tracker
-// Robust: tries Vercel KV first, falls back to in-memory if KV is unreachable
 
-let memoryTasks = []; // in-memory fallback when KV is down
-
-// ─── KV HELPER (raw fetch — avoids @vercel/kv DNS issues) ────────────────────
 const KV_URL   = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
 
@@ -13,64 +9,40 @@ function isKVConfigured() {
 }
 
 async function kvGet(key) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`KV GET failed: ${res.status}`);
-    const data = await res.json();
-    return data.result ?? null;
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
+  const res = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${KV_TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`KV GET ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  if (data.result === null || data.result === undefined) return null;
+  if (typeof data.result === 'string') {
+    try { return JSON.parse(data.result); } catch { return data.result; }
   }
+  return data.result;
 }
 
 async function kvSet(key, value) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${KV_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify([JSON.stringify(value)]),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`KV SET failed: ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+  const res = await fetch(`${KV_URL}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${KV_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify([JSON.stringify(value)]),
+  });
+  if (!res.ok) throw new Error(`KV SET ${res.status}: ${await res.text()}`);
+  return await res.json();
 }
 
 async function kvDel(key) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(`${KV_URL}/del/${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`KV DEL failed: ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+  const res = await fetch(`${KV_URL}/del/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${KV_TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`KV DEL ${res.status}: ${await res.text()}`);
+  return await res.json();
 }
 
-// ─── MAIN HANDLER ────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -78,78 +50,66 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const kvAvailable = isKVConfigured();
+  // ── DEBUG: visit /api/tasks?debug=1 in browser to check KV config ──────
+  if (req.method === 'GET' && req.query?.debug === '1') {
+    return res.status(200).json({
+      kvConfigured: isKVConfigured(),
+      kvUrl: KV_URL ? KV_URL.substring(0, 35) + '...' : 'NOT SET',
+      kvToken: KV_TOKEN ? KV_TOKEN.substring(0, 10) + '...' : 'NOT SET',
+    });
+  }
 
   try {
-    // ── GET ──────────────────────────────────────────────────────────────────
+    // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      if (kvAvailable) {
-        try {
-          const raw = await kvGet('tasks');
-          const tasks = raw
-            ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
-            : [];
-          memoryTasks = tasks; // sync memory with KV
-          return res.status(200).json(tasks);
-        } catch (kvErr) {
-          console.warn('[Tasks] KV GET failed, using memory fallback:', kvErr.message);
-          return res.status(200).json(memoryTasks);
-        }
+      if (!isKVConfigured()) {
+        console.error('[Tasks] KV_REST_API_URL or KV_REST_API_TOKEN not set');
+        return res.status(200).json([]);
       }
-      // KV not configured — use memory
-      console.warn('[Tasks] KV not configured, using memory fallback');
-      return res.status(200).json(memoryTasks);
+      try {
+        const tasks = await kvGet('tasks');
+        console.log(`[Tasks] GET → ${tasks?.length ?? 0} tasks`);
+        return res.status(200).json(tasks || []);
+      } catch (err) {
+        console.error('[Tasks] KV GET error:', err.message);
+        return res.status(200).json([]);
+      }
     }
 
-    // ── POST ─────────────────────────────────────────────────────────────────
+    // ── POST ─────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
       const { tasks } = req.body || {};
       if (!Array.isArray(tasks)) {
         return res.status(400).json({ error: 'tasks must be an array' });
       }
-
-      memoryTasks = tasks; // always update memory
-
-      if (kvAvailable) {
-        try {
-          await kvSet('tasks', tasks);
-          return res.status(200).json({ success: true, source: 'kv' });
-        } catch (kvErr) {
-          console.warn('[Tasks] KV SET failed, saved to memory only:', kvErr.message);
-          return res.status(200).json({
-            success: true,
-            source: 'memory',
-            warning: 'KV unavailable — data saved in memory only (will reset on redeploy)',
-          });
-        }
+      if (!isKVConfigured()) {
+        console.error('[Tasks] KV not configured — cannot persist tasks');
+        return res.status(503).json({
+          error: 'KV not configured — set KV_REST_API_URL and KV_REST_API_TOKEN in Vercel',
+        });
       }
-
-      return res.status(200).json({
-        success: true,
-        source: 'memory',
-        warning: 'KV not configured — data saved in memory only',
-      });
+      try {
+        const result = await kvSet('tasks', tasks);
+        console.log(`[Tasks] SET → saved ${tasks.length} tasks`, result);
+        return res.status(200).json({ success: true, count: tasks.length });
+      } catch (err) {
+        console.error('[Tasks] KV SET error:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
     }
 
-    // ── DELETE ───────────────────────────────────────────────────────────────
+    // ── DELETE ───────────────────────────────────────────────────────────
     if (req.method === 'DELETE') {
-      memoryTasks = [];
-
-      if (kvAvailable) {
-        try {
-          await kvDel('tasks');
-          return res.status(200).json({ success: true, source: 'kv' });
-        } catch (kvErr) {
-          console.warn('[Tasks] KV DEL failed, cleared memory only:', kvErr.message);
-          return res.status(200).json({
-            success: true,
-            source: 'memory',
-            warning: 'KV unavailable — cleared memory only',
-          });
-        }
+      if (!isKVConfigured()) {
+        return res.status(503).json({ error: 'KV not configured' });
       }
-
-      return res.status(200).json({ success: true, source: 'memory' });
+      try {
+        await kvDel('tasks');
+        return res.status(200).json({ success: true });
+      } catch (err) {
+        console.error('[Tasks] KV DEL error:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
