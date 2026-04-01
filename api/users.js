@@ -1,7 +1,7 @@
-// api/logs.js — Athens Community Facility Tracker
+// api/users.js — Athens Community Facility Tracker
 // Uses raw fetch to Upstash REST API — no @vercel/kv dependency issues
 
-let memoryLogs = []; // in-memory fallback when KV is down
+let memoryUsers = []; // in-memory fallback when KV is down
 
 const KV_URL   = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
@@ -65,40 +65,44 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       if (kvAvailable) {
         try {
-          const raw = await kvGet('logs');
-          const logs = raw
+          const raw = await kvGet('users');
+          const users = raw
             ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
             : [];
-          memoryLogs = logs;
-          return res.status(200).json(logs);
+          memoryUsers = users;
+          // Never expose passwords to client
+          const safeUsers = users.map(({ password, ...rest }) => rest);
+          return res.status(200).json(safeUsers);
         } catch (kvErr) {
-          console.warn('[Logs] KV GET failed, using memory fallback:', kvErr.message);
-          return res.status(200).json(memoryLogs);
+          console.warn('[Users] KV GET failed, using memory fallback:', kvErr.message);
+          const safeUsers = memoryUsers.map(({ password, ...rest }) => rest);
+          return res.status(200).json(safeUsers);
         }
       }
-      console.warn('[Logs] KV not configured, using memory fallback');
-      return res.status(200).json(memoryLogs);
+      console.warn('[Users] KV not configured, using memory fallback');
+      const safeUsers = memoryUsers.map(({ password, ...rest }) => rest);
+      return res.status(200).json(safeUsers);
     }
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { logs } = req.body || {};
-      if (!Array.isArray(logs)) {
-        return res.status(400).json({ error: 'logs must be an array' });
+      const { users } = req.body || {};
+      if (!Array.isArray(users)) {
+        return res.status(400).json({ error: 'users must be an array' });
       }
 
-      memoryLogs = logs;
+      memoryUsers = users;
 
       if (kvAvailable) {
         try {
-          await kvSet('logs', logs);
+          await kvSet('users', users);
           return res.status(200).json({ success: true, source: 'kv' });
         } catch (kvErr) {
-          console.warn('[Logs] KV SET failed, saved to memory only:', kvErr.message);
+          console.warn('[Users] KV SET failed, saved to memory only:', kvErr.message);
           return res.status(200).json({
             success: true,
             source: 'memory',
-            warning: 'KV unavailable — logs saved in memory only',
+            warning: 'KV unavailable — users saved in memory only',
           });
         }
       }
@@ -109,7 +113,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
 
   } catch (error) {
-    console.error('[Logs] Unexpected error:', error);
+    console.error('[Users] Unexpected error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
