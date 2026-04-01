@@ -44,31 +44,36 @@ const App = () => {
 
   useEffect(() => {
     if (user) {
-      loadData();
-      const interval = setInterval(loadData, 5000);
+      loadData(true);
+      const interval = setInterval(() => loadData(false), 30000);
       return () => clearInterval(interval);
     }
   }, [user]);
 
-  const loadData = async () => {
+  const loadData = async (isInitial = false) => {
     try {
       setStatus('loading');
       const tasksRes = await fetch(`${API_URL}/tasks`);
       const tasksData = await tasksRes.json();
+
       if (tasksData && tasksData.length > 0) {
+        // KV has real tasks — always use them
         setTasks(tasksData);
-      } else {
-        const sampleTasks = samples();
-        await saveTasks(sampleTasks);
-        setTasks(sampleTasks);
+      } else if (isInitial) {
+        // Only load samples on FIRST load if KV is empty
+        // Do NOT save samples to KV — just show them locally
+        setTasks(samples());
       }
+      // If not initial and KV returns empty — keep existing tasks in state
+      // This prevents auto-refresh from wiping user-added tasks
+
       const logsRes = await fetch(`${API_URL}/logs`);
       const logsData = await logsRes.json();
       if (logsData && logsData.length > 0) setLogs(logsData);
       setStatus('ready');
     } catch (e) {
       console.error('Error loading data:', e);
-      setTasks(samples());
+      if (isInitial) setTasks(samples());
       setStatus('error');
     }
   };
@@ -399,7 +404,7 @@ const App = () => {
               </div>
               <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
               <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>
-              <button onClick={loadData} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
+              <button onClick={() => loadData(false)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
               <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>
               <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>
               {user.role === 'admin' && <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>}
