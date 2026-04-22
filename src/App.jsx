@@ -72,7 +72,7 @@ const App = () => {
   const saveTasks = async (tasksToSave) => {
     try {
       setStatus('syncing');
-      await fetch(`${API_URL}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasks: tasksToSave }) });
+      localStorage.setItem('tasks', JSON.stringify(tasksToSave));
       setStatus('ready');
     } catch (e) { console.error('Error saving tasks:', e); setStatus('error'); }
   };
