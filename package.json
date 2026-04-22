@@ -4,7 +4,8 @@
   "description": "Athens Community Facility Management Tracker",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.js & vite",
+    "server": "node server.js",
     "build": "vite build",
     "preview": "vite preview"
   },
