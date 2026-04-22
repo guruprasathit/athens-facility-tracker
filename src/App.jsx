@@ -19,7 +19,7 @@ const App = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
 
-  const API_URL = '/api';
+  const API_URL = null; // Using localStorage instead of API
 
   const pri = { low: { c: '#10b981', b: '#d1fae5' }, medium: { c: '#f59e0b', b: '#fef3c7' }, high: { c: '#ef4444', b: '#fee2e2' }, critical: { c: '#dc2626', b: '#fee2e2' } };
   const cols = [{ id: 'backlog', t: 'Backlog', I: Circle }, { id: 'in-progress', t: 'In Progress', I: Clock }, { id: 'done', t: 'Done', I: CheckCircle2 }];
@@ -53,23 +53,14 @@ const App = () => {
   const loadData = async (isInitial = false) => {
     try {
       setStatus('loading');
-      const tasksRes = await fetch(`${API_URL}/tasks`);
-      const tasksData = await tasksRes.json();
-
-      if (tasksData && tasksData.length > 0) {
-        // KV has real tasks — always use them
-        setTasks(tasksData);
+      const tasks = JSON.parse(localStorage.getItem('tasks') || '[]');
+      if (tasks.length > 0) {
+        setTasks(tasks);
       } else if (isInitial) {
-        // Only load samples on FIRST load if KV is empty
-        // Do NOT save samples to KV — just show them locally
         setTasks(samples());
       }
-      // If not initial and KV returns empty — keep existing tasks in state
-      // This prevents auto-refresh from wiping user-added tasks
-
-      const logsRes = await fetch(`${API_URL}/logs`);
-      const logsData = await logsRes.json();
-      if (logsData && logsData.length > 0) setLogs(logsData);
+      const logs = JSON.parse(localStorage.getItem('logs') || '[]');
+      if (logs.length > 0) setLogs(logs);
       setStatus('ready');
     } catch (e) {
       console.error('Error loading data:', e);
