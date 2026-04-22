@@ -1,7 +1,7 @@
 // api/users.js — Athens Community Facility Tracker
-import { kv } from '@vercel/kv';
+import { get, set } from './_storage.js';
 
-export default async function handler(req, res) {
+export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -9,14 +9,14 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const users = await kv.get('users') || [];
+      const users = get('users') || [];
       const safeUsers = users.map(({ password, ...rest }) => rest);
       return res.status(200).json(safeUsers);
     }
     if (req.method === 'POST') {
       const { users } = req.body || {};
       if (!Array.isArray(users)) return res.status(400).json({ error: 'users must be an array' });
-      await kv.set('users', users);
+      set('users', users);
       return res.status(200).json({ success: true });
     }
     return res.status(405).json({ error: 'Method not allowed' });
