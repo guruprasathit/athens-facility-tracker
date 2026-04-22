@@ -6,7 +6,7 @@ const FALLBACK_USERS = {
   guruprasath: { password: process.env.GURU_PASSWORD || 'athens2024', role: 'admin', name: 'Guruprasath' },
 };
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -29,15 +29,15 @@ export default function handler(req, res) {
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
     try {
-      const existing = get(`user:${identifier}`);
+      const existing = await get(`user:${identifier}`);
       if (existing) return res.status(409).json({ error: 'Username already exists.' });
 
-      const userCount = get('userCount') || 0;
+      const userCount = (await get('userCount')) || 0;
       const role = userCount === 0 ? 'admin' : 'member';
       const newUser = { username: identifier, name, password, role, createdAt: new Date().toISOString() };
 
-      set(`user:${identifier}`, newUser);
-      set('userCount', userCount + 1);
+      await set(`user:${identifier}`, newUser);
+      await set('userCount', userCount + 1);
 
       console.log(`[Auth] Registered: ${identifier} (${role})`);
       return res.status(200).json({ success: true, user: { username: identifier, name, role } });
@@ -62,7 +62,7 @@ export default function handler(req, res) {
 
   // 2. Check stored users
   try {
-    const userData = get(`user:${identifier}`);
+    const userData = await get(`user:${identifier}`);
     if (!userData) return res.status(401).json({ error: 'Invalid username or password.' });
     if (userData.password !== password) return res.status(401).json({ error: 'Invalid username or password.' });
 
@@ -70,7 +70,7 @@ export default function handler(req, res) {
     return res.status(200).json({
       success: true,
       user: { username: identifier, name: userData.name, role: userData.role },
-      source: 'file',
+      source: 'kv',
     });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);

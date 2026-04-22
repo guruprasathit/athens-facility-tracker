@@ -1,23 +1,50 @@
-// api/_storage.js — file-based storage (no external services required)
-// Uses /tmp on Vercel (writable, no config needed) and ./data locally.
+// api/_storage.js — Athens Community Facility Tracker
+// Uses Vercel KV when configured (persistent), falls back to file storage otherwise.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
-const DATA_DIR = process.env.VERCEL ? '/tmp/athens-data' : join(process.cwd(), 'data');
+const kvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
+// ── FILE STORAGE FALLBACK ────────────────────────────────────────────────────
+const DATA_DIR = process.env.VERCEL ? '/tmp/athens-data' : join(process.cwd(), 'data');
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 
-export function get(key) {
+function fileGet(key) {
   const file = join(DATA_DIR, `${key}.json`);
   if (!existsSync(file)) return null;
   try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; }
 }
 
-export function set(key, value) {
+function fileSet(key, value) {
   writeFileSync(join(DATA_DIR, `${key}.json`), JSON.stringify(value, null, 2));
 }
 
-export function del(key) {
+function fileDel(key) {
   const file = join(DATA_DIR, `${key}.json`);
   if (existsSync(file)) { try { unlinkSync(file); } catch {} }
 }
+
+// ── KV STORAGE (Vercel KV / Upstash Redis) ───────────────────────────────────
+let kv;
+if (kvConfigured) {
+  const mod = await import('@vercel/kv');
+  kv = mod.kv;
+}
+
+// ── UNIFIED API ──────────────────────────────────────────────────────────────
+export async function get(key) {
+  if (kvConfigured) return await kv.get(key);
+  return fileGet(key);
+}
+
+export async function set(key, value) {
+  if (kvConfigured) return await kv.set(key, value);
+  fileSet(key, value);
+}
+
+export async function del(key) {
+  if (kvConfigured) return await kv.del(key);
+  fileDel(key);
+}
+
+export const usingKv = kvConfigured;
