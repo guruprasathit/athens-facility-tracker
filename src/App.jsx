@@ -57,15 +57,10 @@ const App = () => {
       const tasksData = await tasksRes.json();
 
       if (tasksData && tasksData.length > 0) {
-        // KV has real tasks — always use them
         setTasks(tasksData);
       } else if (isInitial) {
-        // Only load samples on FIRST load if KV is empty
-        // Do NOT save samples to KV — just show them locally
         setTasks(samples());
       }
-      // If not initial and KV returns empty — keep existing tasks in state
-      // This prevents auto-refresh from wiping user-added tasks
 
       const logsRes = await fetch(`${API_URL}/logs`);
       const logsData = await logsRes.json();
@@ -95,7 +90,6 @@ const App = () => {
   const login = async () => {
     setLoginError('');
 
-    // ── Validation (no email format check) ──
     if (!username.trim()) { setLoginError('Please enter your username.'); return; }
     if (!password.trim()) { setLoginError('Please enter your password.'); return; }
 
@@ -127,7 +121,6 @@ const App = () => {
       const loggedInUser = data.user;
       setUser(loggedInUser);
 
-      // Log the login/register action
       const existingLogsRes = await fetch(`${API_URL}/logs`);
       const existingLogs = await existingLogsRes.json() || [];
       const loginLog = {
@@ -148,7 +141,6 @@ const App = () => {
       setLoginError('Connection error. Please try again.');
     }
 
-    // Clear form fields
     setUsername('');
     setName('');
     setPassword('');
@@ -245,6 +237,19 @@ const App = () => {
   };
 
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
+
+  const categoryMeta = [
+    { key: 'maintenance', label: 'Maintenance', color: '#3b82f6' },
+    { key: 'pool',        label: 'Pool',        color: '#06b6d4' },
+    { key: 'landscaping', label: 'Landscaping', color: '#10b981' },
+    { key: 'security',    label: 'Security',    color: '#f59e0b' },
+    { key: 'cleaning',    label: 'Cleaning',    color: '#8b5cf6' },
+    { key: 'repairs',     label: 'Repairs',     color: '#ef4444' },
+  ];
+  const catData = categoryMeta
+    .map(({ key, label, color }) => ({ label, color, count: tasks.filter(t => t.category === key).length }))
+    .filter(d => d.count > 0);
+  const maxCatCount = Math.max(...catData.map(d => d.count), 1);
 
   // ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
   if (!user) return (
@@ -394,6 +399,8 @@ const App = () => {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem' }}>
       <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
+
+        {/* ── Header & Stats ── */}
         <div style={{ background: 'white', borderRadius: '16px', padding: '2rem', marginBottom: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Facility Management</p></div>
@@ -418,6 +425,32 @@ const App = () => {
           </div>
         </div>
 
+        {/* ── Tasks by Category Dashboard ── */}
+        {catData.length > 0 && (
+          <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem 2rem', marginBottom: '2rem' }}>
+            <h2 style={{ margin: '0 0 1.25rem 0', fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Tasks by Category</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              {catData.map(({ label, color, count }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '90px', fontSize: '0.8rem', color: '#374151', textAlign: 'right', flexShrink: 0 }}>{label}</div>
+                  <div style={{ flex: 1, background: '#f3f4f6', borderRadius: '4px', height: '22px', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${(count / maxCatCount) * 100}%`,
+                      background: color,
+                      height: '100%',
+                      borderRadius: '4px',
+                      transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)',
+                      minWidth: '4px',
+                    }} />
+                  </div>
+                  <div style={{ width: '20px', fontSize: '0.85rem', fontWeight: 700, color: '#111827', flexShrink: 0 }}>{count}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Kanban Board ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
           {cols.map(col => {
             const Icon = col.I;
