@@ -308,12 +308,6 @@ const App = () => {
           {loginError && <div className="error-box">⚠ {loginError}</div>}
 
           {isRegistering && (
-            <div className="info-box">
-              ℹ️ The first registered user becomes the <strong>Admin</strong>. Admins can delete and clear tasks.
-            </div>
-          )}
-
-          {isRegistering && (
             <div className="field">
               <label>Full Name</label>
               <div className="field-wrap">
