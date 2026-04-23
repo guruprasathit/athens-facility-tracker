@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App = () => {
@@ -18,8 +18,47 @@ const App = () => {
   const [loginError, setLoginError] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
+  const [lightbox, setLightbox] = useState(null);
+  const fileInputRef = useRef(null);
 
   const API_URL = '/api';
+
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) { reject(new Error('File must be an image')); return; }
+    if (file.size > 10 * 1024 * 1024) { reject(new Error('Image must be under 10 MB')); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX = 700;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.72), name: file.name });
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const handleImageSelect = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { dataUrl, name } = await compressImage(file);
+      setForm(f => ({ ...f, image: dataUrl, imageName: name }));
+    } catch (err) {
+      alert(err.message);
+    }
+    e.target.value = '';
+  };
 
   const pri = { low: { c: '#10b981', b: '#d1fae5' }, medium: { c: '#f59e0b', b: '#fef3c7' }, high: { c: '#ef4444', b: '#fee2e2' }, critical: { c: '#dc2626', b: '#fee2e2' } };
   const cols = [{ id: 'backlog', t: 'Backlog', I: Circle }, { id: 'in-progress', t: 'In Progress', I: Clock }, { id: 'done', t: 'Done', I: CheckCircle2 }];
@@ -164,7 +203,7 @@ const App = () => {
   };
 
   const open = (s = 'backlog', t = null) => {
-    if (t) { setEdit(t); setForm(t); } else { setEdit(null); setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance' }); }
+    if (t) { setEdit(t); setForm(t); } else { setEdit(null); setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', image: null, imageName: '' }); }
     setModal(true);
   };
 
@@ -476,6 +515,16 @@ const App = () => {
                           </div>
                         </div>
                         <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{task.description}</div>
+                        {task.image && (
+                          <div style={{ position: 'relative', marginBottom: '0.75rem', cursor: 'pointer' }} onClick={() => setLightbox({ src: task.image, title: task.title })}>
+                            <img src={task.image} alt="attachment" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb', display: 'block' }} />
+                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.3)'; e.currentTarget.querySelector('svg').style.opacity = '1'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0)'; e.currentTarget.querySelector('svg').style.opacity = '0'; }}>
+                              <ZoomIn size={28} style={{ color: 'white', opacity: 0, transition: 'opacity 0.2s' }} />
+                            </div>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: pri[task.priority].b, color: pri[task.priority].c }}>{task.priority.toUpperCase()}</span>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed' }}>{task.category}</span>
@@ -508,14 +557,36 @@ const App = () => {
       </div>
 
       {modal && (
-        <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem' }}>
+        <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, overflowY: 'auto', padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem', margin: 'auto' }}>
             <h3 style={{ marginBottom: '1rem' }}>{edit ? 'Edit' : 'Add'} Task</h3>
             <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
             <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
             <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+
+            {/* ── Image Attachment ── */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Paperclip size={13} />Photo Attachment</div>
+              {form.image ? (
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <img src={form.image} alt="attachment" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '8px', border: '2px solid #e5e7eb', display: 'block' }} />
+                  <button onClick={() => setForm(f => ({ ...f, image: null, imageName: '' }))} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}><X size={12} /></button>
+                  {form.imageName && <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.25rem' }}>{form.imageName}</div>}
+                </div>
+              ) : (
+                <div onClick={() => fileInputRef.current?.click()} style={{ border: '2px dashed #d1d5db', borderRadius: '8px', padding: '1.25rem', textAlign: 'center', cursor: 'pointer', color: '#9ca3af', transition: 'border-color 0.2s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#667eea'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#d1d5db'}>
+                  <Image size={24} style={{ marginBottom: '0.4rem', color: '#d1d5db' }} />
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Click to upload a photo</div>
+                  <div style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>JPG, PNG, WEBP · max 10 MB</div>
+                </div>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
+            </div>
+
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
@@ -542,6 +613,17 @@ const App = () => {
               })}
             </div>
             <button onClick={() => setLogModal(false)} style={{ width: '100%', padding: '0.75rem', marginTop: '1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Image Lightbox ── */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={lightbox.src} alt={lightbox.title} style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: '8px', display: 'block' }} />
+            <div style={{ color: 'white', textAlign: 'center', marginTop: '0.75rem', fontWeight: 600, fontSize: '0.95rem' }}>{lightbox.title}</div>
+            <button onClick={() => setLightbox(null)} style={{ position: 'absolute', top: '-12px', right: '-12px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}><X size={16} /></button>
           </div>
         </div>
       )}
