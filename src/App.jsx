@@ -20,7 +20,10 @@ const App = () => {
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
-  const fileRefs = [useRef(null), useRef(null), useRef(null)];
+  const fileRef0 = useRef(null);
+  const fileRef1 = useRef(null);
+  const fileRef2 = useRef(null);
+  const fileRefs = [fileRef0, fileRef1, fileRef2];
 
   const API_URL = '/api';
 
@@ -42,10 +45,10 @@ const App = () => {
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.72), name: file.name });
       };
-      img.onerror = reject;
+      img.onerror = () => reject(new Error('Could not read image — format may not be supported'));
       img.src = e.target.result;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('Could not read file'));
     reader.readAsDataURL(file);
   });
 
