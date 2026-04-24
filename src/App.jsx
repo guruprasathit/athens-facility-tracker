@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App = () => {
@@ -324,6 +324,15 @@ const App = () => {
     }
   };
 
+  const sendAlert = async (task) => {
+    try {
+      const res = await fetch(`${API_URL}/notify?taskId=${task.id}`);
+      const data = await res.json();
+      if (res.ok) alert(`✅ Alert sent to ${data.email}`);
+      else alert(`❌ Failed: ${data.error}`);
+    } catch (err) { alert(`❌ Error: ${err.message}`); }
+  };
+
   const move = async (id, ns) => {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -616,6 +625,7 @@ const App = () => {
                           <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>
+                            {task.assignedEmail && task.status !== 'done' && <button onClick={() => sendAlert(task)} title={`Send alert to ${task.assignedEmail}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
                             {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
