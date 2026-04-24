@@ -19,8 +19,8 @@ const App = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
   const [lightbox, setLightbox] = useState(null);
-  const [images, setImages] = useState({});   // { [taskId]: dataUrl } — loaded from KV separately
-  const fileInputRef = useRef(null);
+  const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
+  const fileRefs = [useRef(null), useRef(null), useRef(null)];
 
   const API_URL = '/api';
 
@@ -49,15 +49,19 @@ const App = () => {
     reader.readAsDataURL(file);
   });
 
-  const handleImageSelect = async (e) => {
+  const handleImageSelect = async (e, slot) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
       const { dataUrl, name } = await compressImage(file);
-      setForm(f => ({ ...f, _newImage: dataUrl, _newImageName: name, _removeImage: false }));
-    } catch (err) {
-      alert(err.message);
-    }
+      setForm(f => {
+        const imgs  = [...(f._images  || [null,null,null])];
+        const names = [...(f._imageNames || ['','',''])];
+        const rems  = [...(f._removeImages || [false,false,false])];
+        imgs[slot] = dataUrl; names[slot] = name; rems[slot] = false;
+        return { ...f, _images: imgs, _imageNames: names, _removeImages: rems };
+      });
+    } catch (err) { alert(err.message); }
     e.target.value = '';
   };
 
@@ -98,19 +102,20 @@ const App = () => {
 
       if (tasksData && tasksData.length > 0) {
         setTasks(tasksData);
-        // Fetch images for tasks that have them stored in KV
-        const withImages = tasksData.filter(t => t.hasImage);
+        // Fetch images for ALL tasks that have them — visible to every user
+        const withImages = tasksData.filter(t => t.imageCount > 0 || t.hasImage);
         if (withImages.length > 0) {
           const results = await Promise.allSettled(
             withImages.map(t => fetch(`${API_URL}/images?id=${t.id}`).then(r => r.json()))
           );
           const imgMap = {};
           withImages.forEach((t, i) => {
-            if (results[i].status === 'fulfilled' && results[i].value?.image?.dataUrl) {
-              imgMap[t.id] = results[i].value.image.dataUrl;
+            if (results[i].status === 'fulfilled' && Array.isArray(results[i].value?.images)) {
+              const slots = results[i].value.images;
+              if (slots.some(Boolean)) imgMap[t.id] = slots;
             }
           });
-          setImages(imgMap);
+          setImages(prev => ({ ...prev, ...imgMap }));
         }
       } else if (isInitial) {
         setTasks(samples());
@@ -226,15 +231,16 @@ const App = () => {
     }, 500);
   };
 
+  const BLANK_IMGS = { _images: [null,null,null], _imageNames: ['','',''], _removeImages: [false,false,false] };
+
   const open = (s = 'backlog', t = null) => {
     if (t) {
-      // Strip any old inline image data — images now live in KV / images state
       const { image: _img, imageName: _name, ...taskFields } = t;
       setEdit(t);
-      setForm({ ...taskFields, _newImage: null, _newImageName: '', _removeImage: false });
+      setForm({ ...taskFields, ...BLANK_IMGS });
     } else {
       setEdit(null);
-      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', _newImage: null, _newImageName: '', _removeImage: false });
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', ...BLANK_IMGS });
     }
     setModal(true);
   };
@@ -242,21 +248,32 @@ const App = () => {
   const saveTask = async () => {
     if (!form.title || !form.dueDate) { alert('Fill Title and Due Date'); return; }
 
-    const { _newImage, _newImageName, _removeImage, image: _oldInline, imageName: _oldName, ...taskFields } = form;
-    const hasNewImage = !!_newImage;
-    const removingImage = _removeImage;
+    const { _images, _imageNames, _removeImages, image: _oi, imageName: _on, ...taskFields } = form;
+    const newImgs  = _images       || [null,null,null];
+    const newNames = _imageNames   || ['','',''];
+    const remImgs  = _removeImages || [false,false,false];
 
     let updatedTasks, updatedLogs, taskId;
 
+    const countImages = (tid) => {
+      let c = 0;
+      for (let i = 0; i < 3; i++) {
+        const existing = !!(images[tid]?.[i]);
+        if (newImgs[i] || (!remImgs[i] && existing)) c++;
+      }
+      return c;
+    };
+
     if (edit) {
       taskId = edit.id;
-      const hasImage = hasNewImage ? true : removingImage ? false : !!edit.hasImage;
-      updatedTasks = tasks.map(t => t.id === taskId ? { ...taskFields, id: taskId, hasImage, lastModifiedBy: user.username } : t);
+      updatedTasks = tasks.map(t => t.id === taskId
+        ? { ...taskFields, id: taskId, imageCount: countImages(taskId), lastModifiedBy: user.username }
+        : t);
       updatedLogs = log('UPDATED', form.title, 'Task updated');
     } else {
       taskId = Date.now();
-      const newTask = { ...taskFields, id: taskId, hasImage: hasNewImage, createdAt: new Date().toISOString(), createdBy: user.username, createdByName: user.name };
-      updatedTasks = [...tasks, newTask];
+      const imageCount = newImgs.filter(Boolean).length;
+      updatedTasks = [...tasks, { ...taskFields, id: taskId, imageCount, createdAt: new Date().toISOString(), createdBy: user.username, createdByName: user.name }];
       updatedLogs = log('CREATED', form.title, `Priority: ${form.priority}`);
     }
 
@@ -264,22 +281,26 @@ const App = () => {
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
 
-    // Save or delete image in KV separately
-    if (hasNewImage) {
-      try {
-        const res = await fetch(`${API_URL}/images`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ taskId, dataUrl: _newImage, name: _newImageName || '' }),
-        });
-        if (res.ok) setImages(prev => ({ ...prev, [taskId]: _newImage }));
-      } catch (e) { console.error('Image upload failed:', e); }
-    } else if (removingImage && edit) {
-      try {
-        await fetch(`${API_URL}/images?id=${taskId}`, { method: 'DELETE' });
-        setImages(prev => { const n = { ...prev }; delete n[taskId]; return n; });
-      } catch (e) { console.error('Image delete failed:', e); }
+    // Upload / remove each image slot independently in KV
+    const localSlots = [...(images[taskId] || [null,null,null])];
+    for (let i = 0; i < 3; i++) {
+      if (newImgs[i]) {
+        try {
+          const r = await fetch(`${API_URL}/images`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, index: i, dataUrl: newImgs[i], name: newNames[i] || '' }),
+          });
+          if (r.ok) localSlots[i] = newImgs[i];
+        } catch (e) { console.error(`Image slot ${i} upload failed:`, e); }
+      } else if (remImgs[i]) {
+        try {
+          await fetch(`${API_URL}/images?id=${taskId}&index=${i}`, { method: 'DELETE' });
+          localSlots[i] = null;
+        } catch (e) { console.error(`Image slot ${i} delete failed:`, e); }
+      }
     }
+    if (localSlots.some(Boolean)) setImages(prev => ({ ...prev, [taskId]: localSlots }));
+    else setImages(prev => { const n = { ...prev }; delete n[taskId]; return n; });
 
     setModal(false);
   };
@@ -293,7 +314,7 @@ const App = () => {
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
-    if (t.hasImage || t.image) {
+    if (t.imageCount > 0 || t.hasImage || t.image) {
       try { await fetch(`${API_URL}/images?id=${id}`, { method: 'DELETE' }); } catch {}
       setImages(prev => { const n = { ...prev }; delete n[id]; return n; });
     }
@@ -579,16 +600,29 @@ const App = () => {
                           </div>
                         </div>
                         <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{task.description}</div>
-                        {(images[task.id] || task.image) && (
-                          <div style={{ position: 'relative', marginBottom: '0.75rem', cursor: 'pointer' }} onClick={() => setLightbox({ src: images[task.id] || task.image, title: task.title })}>
-                            <img src={images[task.id] || task.image} alt="attachment" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e5e7eb', display: 'block' }} />
-                            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.3)'; e.currentTarget.querySelector('svg').style.opacity = '1'; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0)'; e.currentTarget.querySelector('svg').style.opacity = '0'; }}>
-                              <ZoomIn size={28} style={{ color: 'white', opacity: 0, transition: 'opacity 0.2s' }} />
+                        {(() => {
+                          // Support both new (array) and old (string) image formats
+                          const slots = Array.isArray(images[task.id])
+                            ? images[task.id]
+                            : (images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null;
+                          const visible = slots?.filter(Boolean);
+                          if (!visible?.length) return null;
+                          return (
+                            <div style={{ display: 'grid', gridTemplateColumns: visible.length === 1 ? '1fr' : visible.length === 2 ? '1fr 1fr' : '1fr 1fr 1fr', gap: '4px', marginBottom: '0.75rem' }}>
+                              {visible.map((src, idx) => (
+                                <div key={idx} style={{ position: 'relative', cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e5e7eb' }}
+                                  onClick={() => setLightbox({ src, title: task.title, all: visible, idx })}>
+                                  <img src={src} alt={`photo ${idx+1}`} style={{ width: '100%', height: visible.length === 1 ? '120px' : '80px', objectFit: 'cover', display: 'block' }} />
+                                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.3)'; e.currentTarget.querySelector('svg').style.opacity='1'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.querySelector('svg').style.opacity='0'; }}>
+                                    <ZoomIn size={20} style={{ color: 'white', opacity: 0, transition: 'opacity 0.2s' }} />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: pri[task.priority].b, color: pri[task.priority].c }}>{task.priority.toUpperCase()}</span>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed' }}>{task.category}</span>
@@ -630,36 +664,48 @@ const App = () => {
             <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
 
-            {/* ── Image Attachment ── */}
-            {(() => {
-              const existingUrl = form._removeImage ? null : (edit ? images[edit.id] : null);
-              const displayUrl = form._newImage || existingUrl;
-              const displayName = form._newImage ? form._newImageName : (edit?.imageName || '');
-              return (
-                <div style={{ marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Paperclip size={13} />Photo Attachment</div>
-                  {displayUrl ? (
-                    <div style={{ position: 'relative' }}>
-                      <img src={displayUrl} alt="attachment" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '8px', border: '2px solid #e5e7eb', display: 'block' }} />
-                      <button onClick={() => {
-                        if (form._newImage) setForm(f => ({ ...f, _newImage: null, _newImageName: '' }));
-                        else setForm(f => ({ ...f, _removeImage: true }));
-                      }} style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}><X size={12} /></button>
-                      {displayName && <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.25rem' }}>{displayName}</div>}
+            {/* ── Photo Attachments (up to 3) ── */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>(up to 3)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                {[0,1,2].map(slot => {
+                  const newUrl = form._images?.[slot];
+                  const removing = form._removeImages?.[slot];
+                  const existingUrl = removing ? null : (edit ? images[edit.id]?.[slot] : null);
+                  const displayUrl = newUrl || existingUrl;
+                  return (
+                    <div key={slot}>
+                      {displayUrl ? (
+                        <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '2px solid #e5e7eb' }}>
+                          <img src={displayUrl} alt={`photo ${slot+1}`} style={{ width: '100%', height: '90px', objectFit: 'cover', display: 'block' }} />
+                          <button onClick={() => setForm(f => {
+                            const imgs = [...(f._images||[null,null,null])];
+                            const rems = [...(f._removeImages||[false,false,false])];
+                            if (imgs[slot]) { imgs[slot] = null; }
+                            else { rems[slot] = true; }
+                            return { ...f, _images: imgs, _removeImages: rems };
+                          })} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
+                            <X size={10} />
+                          </button>
+                          <div style={{ fontSize: '0.65rem', color: '#9ca3af', textAlign: 'center', padding: '2px' }}>Photo {slot+1}</div>
+                        </div>
+                      ) : (
+                        <div onClick={() => fileRefs[slot].current?.click()}
+                          style={{ border: '2px dashed #d1d5db', borderRadius: '8px', height: '110px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#d1d5db', transition: 'border-color 0.2s, color 0.2s' }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor='#667eea'; e.currentTarget.style.color='#667eea'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor='#d1d5db'; e.currentTarget.style.color='#d1d5db'; }}>
+                          <Image size={20} />
+                          <div style={{ fontSize: '0.7rem', marginTop: '4px', fontWeight: 600 }}>Photo {slot+1}</div>
+                        </div>
+                      )}
+                      <input ref={fileRefs[slot]} type="file" accept="image/*" onChange={e => handleImageSelect(e, slot)} style={{ display: 'none' }} />
                     </div>
-                  ) : (
-                    <div onClick={() => fileInputRef.current?.click()} style={{ border: '2px dashed #d1d5db', borderRadius: '8px', padding: '1.25rem', textAlign: 'center', cursor: 'pointer', color: '#9ca3af', transition: 'border-color 0.2s' }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = '#667eea'}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = '#d1d5db'}>
-                      <Image size={24} style={{ marginBottom: '0.4rem', color: '#d1d5db' }} />
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Click to upload a photo</div>
-                      <div style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>JPG, PNG, WEBP · max 10 MB</div>
-                    </div>
-                  )}
-                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} style={{ display: 'none' }} />
-                </div>
-              );
-            })()}
+                  );
+                })}
+              </div>
+            </div>
 
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
@@ -693,10 +739,20 @@ const App = () => {
 
       {/* ── Image Lightbox ── */}
       {lightbox && (
-        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
-          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
-            <img src={lightbox.src} alt={lightbox.title} style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: '8px', display: 'block' }} />
-            <div style={{ color: 'white', textAlign: 'center', marginTop: '0.75rem', fontWeight: 600, fontSize: '0.95rem' }}>{lightbox.title}</div>
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <img src={lightbox.src} alt={lightbox.title} style={{ maxWidth: '88vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: '8px', display: 'block' }} />
+            <div style={{ color: 'white', textAlign: 'center', marginTop: '0.75rem', fontWeight: 600, fontSize: '0.95rem' }}>
+              {lightbox.title}{lightbox.all?.length > 1 ? ` · ${lightbox.idx + 1}/${lightbox.all.length}` : ''}
+            </div>
+            {lightbox.all?.length > 1 && (
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem' }}>
+                {lightbox.all.map((s, i) => (
+                  <img key={i} src={s} onClick={() => setLightbox(lb => ({ ...lb, src: s, idx: i }))}
+                    style={{ width: '56px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: i === lightbox.idx ? '2px solid #667eea' : '2px solid transparent', opacity: i === lightbox.idx ? 1 : 0.6 }} />
+                ))}
+              </div>
+            )}
             <button onClick={() => setLightbox(null)} style={{ position: 'absolute', top: '-12px', right: '-12px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}><X size={16} /></button>
           </div>
         </div>

@@ -74,24 +74,42 @@ app.listen(PORT, () => {
   console.log(Local API server running on http://localhost:);
 });
 
+// GET /api/images?id=taskId — returns { images: [dataUrl|null, ...] } (3 slots)
 app.get('/api/images', (req, res) => {
   const { id } = req.query;
   if (!id) return res.status(400).json({ error: 'id required' });
-  const img = getData(`img_${id}`);
-  res.json({ image: img || null });
+  const slots = [0,1,2].map(i => getData('img_' + id + '_' + i) || null);
+  const oldImg = getData('img_' + id) || null;
+  const images = [
+    slots[0]?.dataUrl || (!slots[1] && !slots[2] && oldImg?.dataUrl ? oldImg.dataUrl : null),
+    slots[1]?.dataUrl || null,
+    slots[2]?.dataUrl || null,
+  ];
+  res.json({ images });
 });
 
+// POST /api/images  body: { taskId, index, dataUrl, name }
 app.post('/api/images', (req, res) => {
-  const { taskId, dataUrl, name } = req.body;
-  if (!taskId || !dataUrl) return res.status(400).json({ error: 'taskId and dataUrl required' });
-  setData(`img_${taskId}`, { dataUrl, name: name || '' });
+  const { taskId, index, dataUrl, name } = req.body;
+  if (!taskId || !dataUrl || index == null) return res.status(400).json({ error: 'taskId, index and dataUrl required' });
+  setData('img_' + taskId + '_' + index, { dataUrl, name: name || '' });
   res.json({ success: true });
 });
 
+// DELETE /api/images?id=taskId[&index=N]
 app.delete('/api/images', (req, res) => {
-  const { id } = req.query;
+  const { id, index } = req.query;
   if (!id) return res.status(400).json({ error: 'id required' });
-  const file = path.join(dataDir, `img_${id}.json`);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
+  if (index != null) {
+    const f = path.join(dataDir, 'img_' + id + '_' + index + '.json');
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  } else {
+    [0,1,2].forEach(i => {
+      const f = path.join(dataDir, 'img_' + id + '_' + i + '.json');
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    });
+    const oldF = path.join(dataDir, 'img_' + id + '.json');
+    if (fs.existsSync(oldF)) fs.unlinkSync(oldF);
+  }
   res.json({ success: true });
 });
