@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App = () => {
@@ -18,7 +18,7 @@ const App = () => {
   const [status, setStatus] = useState('loading');
   const [loginError, setLoginError] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
+  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', assignedEmail: '' });
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
   const fileRef0 = useRef(null);
@@ -244,7 +244,7 @@ const App = () => {
       setForm({ ...taskFields, ...BLANK_IMGS });
     } else {
       setEdit(null);
-      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', ...BLANK_IMGS });
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', assignedEmail: '', ...BLANK_IMGS });
     }
     setModal(true);
   };
@@ -619,7 +619,8 @@ const App = () => {
                             {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
-                        <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{task.description}</div>
+                        <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{task.description}</div>
+                        {task.assignedEmail && <div style={{ fontSize: '0.75rem', color: '#667eea', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={11} />{task.assignedEmail}</div>}
                         {(() => {
                           // Support both new (array) and old (string) image formats
                           const slots = Array.isArray(images[task.id])
@@ -685,6 +686,10 @@ const App = () => {
               {categoryMeta.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
             </select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — receives overdue alerts)</span></div>
+              <input type="email" value={form.assignedEmail || ''} onChange={e => setForm({ ...form, assignedEmail: e.target.value })} placeholder="e.g. manager@example.com" style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+            </div>
 
             {/* ── Photo Attachments (up to 3) ── */}
             <div style={{ marginBottom: '1rem' }}>
