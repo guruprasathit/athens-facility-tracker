@@ -374,10 +374,10 @@ const App = () => {
     const updatedTasks = tasks.map(x => {
       if (x.id === id) {
         const n = { ...x, status: ns };
+        if (!x.athensId && (ns === 'in-progress' || ns === 'done')) n.athensId = nextAthensId();
         if (ns === 'in-progress' && !x.startDate) {
           n.startDate = now.toISOString().split('T')[0];
           n.startTime = now.toLocaleTimeString();
-          if (!x.athensId) n.athensId = nextAthensId();
         }
         if (ns === 'done') { n.completionDate = now.toISOString().split('T')[0]; n.completionTime = now.toLocaleTimeString(); }
         return n;
