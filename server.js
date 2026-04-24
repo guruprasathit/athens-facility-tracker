@@ -73,3 +73,25 @@ app.post('/api/logs', (req, res) => {
 app.listen(PORT, () => {
   console.log(Local API server running on http://localhost:);
 });
+
+app.get('/api/images', (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const img = getData(`img_${id}`);
+  res.json({ image: img || null });
+});
+
+app.post('/api/images', (req, res) => {
+  const { taskId, dataUrl, name } = req.body;
+  if (!taskId || !dataUrl) return res.status(400).json({ error: 'taskId and dataUrl required' });
+  setData(`img_${taskId}`, { dataUrl, name: name || '' });
+  res.json({ success: true });
+});
+
+app.delete('/api/images', (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const file = path.join(dataDir, `img_${id}.json`);
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+  res.json({ success: true });
+});
