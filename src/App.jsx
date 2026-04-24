@@ -8,6 +8,17 @@ const App = () => {
   const [modal, setModal] = useState(false);
   const [logModal, setLogModal] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [labelFilter, setLabelFilter] = useState('all');
+
+  const LABELS = [
+    { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
+    { key: 'block-a',     label: 'Block A',     color: '#f97316' },
+    { key: 'block-b',     label: 'Block B',     color: '#10b981' },
+    { key: 'block-c',     label: 'Block C',     color: '#8b5cf6' },
+    { key: 'block-d',     label: 'Block D',     color: '#ef4444' },
+    { key: 'block-e',     label: 'Block E',     color: '#f59e0b' },
+    { key: 'block-f',     label: 'Block F',     color: '#ec4899' },
+  ];
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
@@ -18,7 +29,7 @@ const App = () => {
   const [status, setStatus] = useState('loading');
   const [loginError, setLoginError] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', assignedEmail: '' });
+  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmail: '' });
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
   const fileRef0 = useRef(null);
@@ -244,7 +255,7 @@ const App = () => {
       setForm({ ...taskFields, ...BLANK_IMGS });
     } else {
       setEdit(null);
-      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', assignedEmail: '', ...BLANK_IMGS });
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', label: '', assignedEmail: '', ...BLANK_IMGS });
     }
     setModal(true);
   };
@@ -590,10 +601,20 @@ const App = () => {
         )}
 
         {/* ── Category Filter Bar ── */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>CATEGORY</span>
           <button onClick={() => setCategoryFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === 'all' ? '#667eea' : '#e5e7eb', background: categoryFilter === 'all' ? '#667eea' : 'white', color: categoryFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
           {categoryMeta.filter(({ key }) => tasks.some(t => t.category === key)).map(({ key, label, color }) => (
             <button key={key} onClick={() => setCategoryFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === key ? color : '#e5e7eb', background: categoryFilter === key ? color : 'white', color: categoryFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
+          ))}
+        </div>
+
+        {/* ── Label Filter Bar ── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>LABEL</span>
+          <button onClick={() => setLabelFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === 'all' ? '#374151' : '#e5e7eb', background: labelFilter === 'all' ? '#374151' : 'white', color: labelFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+          {LABELS.filter(({ key }) => tasks.some(t => t.label === key)).map(({ key, label, color }) => (
+            <button key={key} onClick={() => setLabelFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === key ? color : '#e5e7eb', background: labelFilter === key ? color : 'white', color: labelFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
           ))}
         </div>
 
@@ -605,10 +626,10 @@ const App = () => {
               <div key={col.id} style={{ background: 'white', borderRadius: '16px', padding: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '2px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Icon size={24} style={{ color: '#667eea' }} /><h3 style={{ margin: 0 }}>{col.t}</h3></div>
-                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter)).length}</div>
+                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter)).length}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '200px', marginBottom: '1rem' }}>
-                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter)).map(task => {
+                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter)).map(task => {
                     const today = new Date(); today.setHours(0, 0, 0, 0);
                     const dueDate = new Date(task.dueDate); dueDate.setHours(0, 0, 0, 0);
                     const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
@@ -654,9 +675,10 @@ const App = () => {
                             </div>
                           );
                         })()}
-                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: pri[task.priority].b, color: pri[task.priority].c }}>{task.priority.toUpperCase()}</span>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed' }}>{task.category}</span>
+                          {task.label && (() => { const lm = LABELS.find(l => l.key === task.label); return lm ? <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: lm.color + '22', color: lm.color }}>{lm.label}</span> : null; })()}
                         </div>
                         <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.5rem' }}><Calendar size={12} style={{ display: 'inline', marginRight: '0.25rem' }} />Due: {task.dueDate}</div>
                         {dueDateDisplay && (
@@ -694,6 +716,10 @@ const App = () => {
             <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
             <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}>
               {categoryMeta.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            <select value={form.label || ''} onChange={e => setForm({ ...form, label: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}>
+              <option value="">-- No Label --</option>
+              {LABELS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
             </select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             <div style={{ marginBottom: '1rem' }}>
