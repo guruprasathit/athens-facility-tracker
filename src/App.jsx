@@ -7,6 +7,7 @@ const App = () => {
   const [logs, setLogs] = useState([]);
   const [modal, setModal] = useState(false);
   const [logModal, setLogModal] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
@@ -366,12 +367,20 @@ const App = () => {
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
 
   const categoryMeta = [
-    { key: 'maintenance', label: 'Maintenance', color: '#3b82f6' },
-    { key: 'pool',        label: 'Pool',        color: '#06b6d4' },
-    { key: 'landscaping', label: 'Landscaping', color: '#10b981' },
-    { key: 'security',    label: 'Security',    color: '#f59e0b' },
-    { key: 'cleaning',    label: 'Cleaning',    color: '#8b5cf6' },
-    { key: 'repairs',     label: 'Repairs',     color: '#ef4444' },
+    { key: 'maintenance',  label: 'Maintenance',   color: '#3b82f6' },
+    { key: 'pool',         label: 'Pool',           color: '#06b6d4' },
+    { key: 'landscaping',  label: 'Landscaping',    color: '#10b981' },
+    { key: 'security',     label: 'Security',       color: '#f59e0b' },
+    { key: 'cleaning',     label: 'Cleaning',       color: '#8b5cf6' },
+    { key: 'repairs',      label: 'Repairs',        color: '#ef4444' },
+    { key: 'electrical',   label: 'Electrical',     color: '#f97316' },
+    { key: 'plumbing',     label: 'Plumbing',       color: '#0ea5e9' },
+    { key: 'parking',      label: 'Parking',        color: '#6b7280' },
+    { key: 'gym',          label: 'Gym / Fitness',  color: '#ec4899' },
+    { key: 'common-areas', label: 'Common Areas',   color: '#14b8a6' },
+    { key: 'pest-control', label: 'Pest Control',   color: '#a16207' },
+    { key: 'elevators',    label: 'Elevators',      color: '#7c3aed' },
+    { key: 'admin',        label: 'Administration', color: '#64748b' },
   ];
   const catData = categoryMeta
     .map(({ key, label, color }) => ({ label, color, count: tasks.filter(t => t.category === key).length }))
@@ -571,6 +580,14 @@ const App = () => {
           </div>
         )}
 
+        {/* ── Category Filter Bar ── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <button onClick={() => setCategoryFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === 'all' ? '#667eea' : '#e5e7eb', background: categoryFilter === 'all' ? '#667eea' : 'white', color: categoryFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+          {categoryMeta.filter(({ key }) => tasks.some(t => t.category === key)).map(({ key, label, color }) => (
+            <button key={key} onClick={() => setCategoryFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === key ? color : '#e5e7eb', background: categoryFilter === key ? color : 'white', color: categoryFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
+          ))}
+        </div>
+
         {/* ── Kanban Board ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
           {cols.map(col => {
@@ -579,10 +596,10 @@ const App = () => {
               <div key={col.id} style={{ background: 'white', borderRadius: '16px', padding: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '2px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Icon size={24} style={{ color: '#667eea' }} /><h3 style={{ margin: 0 }}>{col.t}</h3></div>
-                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id).length}</div>
+                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter)).length}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '200px', marginBottom: '1rem' }}>
-                  {tasks.filter(t => t.status === col.id).map(task => {
+                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter)).map(task => {
                     const today = new Date(); today.setHours(0, 0, 0, 0);
                     const dueDate = new Date(task.dueDate); dueDate.setHours(0, 0, 0, 0);
                     const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
@@ -664,7 +681,9 @@ const App = () => {
             <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
             <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
+            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}>
+              {categoryMeta.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            </select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
 
             {/* ── Photo Attachments (up to 3) ── */}
