@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App = () => {
@@ -32,6 +32,7 @@ const App = () => {
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmail: '' });
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
+  const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
   const fileRef0 = useRef(null);
   const fileRef1 = useRef(null);
   const fileRef2 = useRef(null);
@@ -344,6 +345,28 @@ const App = () => {
     } catch (err) { alert(`❌ Error: ${err.message}`); }
   };
 
+  const addComment = async (taskId) => {
+    const text = (commentInputs[taskId] || '').trim();
+    if (!text) return;
+    const task = tasks.find(x => x.id === taskId);
+    if (!task) return;
+    const existing = task.comments || [];
+    if (existing.length >= 5) { alert('Maximum 5 comments per task.'); return; }
+    const comment = { id: Date.now(), text, timestamp: new Date().toISOString(), user: user.username, userName: user.name };
+    const updatedTasks = tasks.map(x => x.id === taskId ? { ...x, comments: [...existing, comment] } : x);
+    setTasks(updatedTasks);
+    setCommentInputs(prev => ({ ...prev, [taskId]: '' }));
+    await saveTasks(updatedTasks);
+  };
+
+  const nextAthensId = () => {
+    const nums = tasks
+      .map(x => x.athensId && x.athensId.startsWith('ATHENS-') ? parseInt(x.athensId.slice(7), 10) : 0)
+      .filter(n => !isNaN(n));
+    const next = nums.length ? Math.max(...nums) + 1 : 1;
+    return `ATHENS-${String(next).padStart(4, '0')}`;
+  };
+
   const move = async (id, ns) => {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
@@ -351,7 +374,11 @@ const App = () => {
     const updatedTasks = tasks.map(x => {
       if (x.id === id) {
         const n = { ...x, status: ns };
-        if (ns === 'in-progress' && !x.startDate) { n.startDate = now.toISOString().split('T')[0]; n.startTime = now.toLocaleTimeString(); }
+        if (ns === 'in-progress' && !x.startDate) {
+          n.startDate = now.toISOString().split('T')[0];
+          n.startTime = now.toLocaleTimeString();
+          if (!x.athensId) n.athensId = nextAthensId();
+        }
         if (ns === 'done') { n.completionDate = now.toISOString().split('T')[0]; n.completionTime = now.toLocaleTimeString(); }
         return n;
       }
@@ -374,7 +401,23 @@ const App = () => {
   };
 
   const exp = () => {
-    const td = tasks.map(t => ({ Title: t.title, Desc: t.description, Priority: t.priority, Status: t.status, Due: t.dueDate, Created: t.createdBy }));
+    const td = tasks.map(t => ({
+      'Athens ID': t.athensId || '',
+      Title: t.title,
+      Description: t.description,
+      Priority: t.priority,
+      Category: t.category,
+      Label: t.label || '',
+      Status: t.status,
+      'Due Date': t.dueDate,
+      'Start Date': t.startDate || '',
+      'Start Time': t.startTime || '',
+      'Completion Date': t.completionDate || '',
+      'Completion Time': t.completionTime || '',
+      'Created By': t.createdByName || t.createdBy,
+      'Assigned Email': t.assignedEmail || '',
+      'Created At': t.createdAt ? new Date(t.createdAt).toLocaleString() : '',
+    }));
     const ld = logs.map(l => ({ Time: new Date(l.timestamp).toLocaleString(), User: l.userName, Action: l.action, Task: l.taskTitle, Details: l.details }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(td), 'Tasks');
@@ -642,7 +685,7 @@ const App = () => {
                     else if (daysUntilDue > 1) dueDateDisplay = `${daysUntilDue} days remaining`;
                     return (
                       <div key={task.id} style={{ background: 'white', borderRadius: '8px', padding: '1rem', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pri[task.priority].c}` }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                           <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>
@@ -650,6 +693,7 @@ const App = () => {
                             {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
+                        {task.athensId && <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#667eea', marginBottom: '0.35rem', letterSpacing: '0.03em' }}>{task.athensId}</div>}
                         <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{task.description}</div>
                         {task.assignedEmail && <div style={{ fontSize: '0.75rem', color: '#667eea', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={11} />{task.assignedEmail}</div>}
                         {(() => {
@@ -689,6 +733,32 @@ const App = () => {
                         {task.startDate && <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f0fdf4', borderRadius: '4px', marginBottom: '0.5rem', border: '1px solid #bbf7d0' }}><Clock size={10} style={{ display: 'inline', marginRight: '0.25rem', color: '#10b981' }} />Started: {task.startDate}{task.startTime && ` at ${task.startTime}`}</div>}
                         {task.completionDate && <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f0fdf4', borderRadius: '4px', marginBottom: '0.5rem', border: '1px solid #bbf7d0' }}><CheckCircle2 size={10} style={{ display: 'inline', marginRight: '0.25rem', color: '#10b981' }} />Completed: {task.completionDate}{task.completionTime && ` at ${task.completionTime}`}</div>}
                         <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f9fafb', borderRadius: '4px', marginBottom: '0.75rem' }}><User size={10} style={{ display: 'inline', marginRight: '0.25rem' }} />By: {task.createdByName || task.createdBy}</div>
+                        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem', marginBottom: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <MessageSquare size={12} />Comments ({(task.comments || []).length}/5)
+                          </div>
+                          {(task.comments || []).map(c => (
+                            <div key={c.id} style={{ fontSize: '0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '0.5rem', marginBottom: '0.4rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                                <span style={{ fontWeight: 600, color: '#374151' }}>{c.userName || c.user}</span>
+                                <span style={{ color: '#9ca3af' }}>{new Date(c.timestamp).toLocaleString()}</span>
+                              </div>
+                              <div style={{ color: '#4b5563' }}>{c.text}</div>
+                            </div>
+                          ))}
+                          {(task.comments || []).length < 5 && (
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                              <input
+                                value={commentInputs[task.id] || ''}
+                                onChange={e => setCommentInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') addComment(task.id); }}
+                                placeholder="Add a comment…"
+                                style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none' }}
+                              />
+                              <button onClick={() => addComment(task.id)} style={{ padding: '0.4rem 0.6rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Post</button>
+                            </div>
+                          )}
+                        </div>
                         {task.status !== 'done' && (
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             {task.status === 'backlog' && <button onClick={() => move(task.id, 'in-progress')} style={{ flex: 1, padding: '0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Start</button>}
