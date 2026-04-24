@@ -115,9 +115,17 @@ const App = () => {
   const saveTasks = async (tasksToSave) => {
     try {
       setStatus('syncing');
-      await fetch(`${API_URL}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasks: tasksToSave }) });
+      const res = await fetch(`${API_URL}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasks: tasksToSave }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
       setStatus('ready');
-    } catch (e) { console.error('Error saving tasks:', e); setStatus('error'); }
+    } catch (e) {
+      console.error('Error saving tasks:', e);
+      setStatus('error');
+      alert(`Failed to save: ${e.message}. Your changes are visible locally but may not persist after refresh.`);
+    }
   };
 
   const saveLogs = async (logsToSave) => {
