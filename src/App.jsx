@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
 
 const App = () => {
   const [tasks, setTasks] = useState([]);
@@ -9,6 +10,8 @@ const App = () => {
   const [logModal, setLogModal] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [labelFilter, setLabelFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -430,6 +433,224 @@ const App = () => {
     saveLogs(updatedLogs);
   };
 
+  const exportPdf = async () => {
+    setPdfGenerating(true);
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = 210, pageH = 297, margin = 14, contentW = pageW - margin * 2;
+      let y = 0;
+
+      const checkPage = (needed = 20) => {
+        if (y + needed > pageH - margin) { doc.addPage(); y = margin; }
+      };
+
+      const hexToRgb = hex => {
+        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+        return [r,g,b];
+      };
+
+      // ── Cover header ──────────────────────────────────────────────────────────
+      doc.setFillColor(102, 126, 234);
+      doc.rect(0, 0, pageW, 42, 'F');
+      doc.setFillColor(118, 75, 162);
+      doc.rect(0, 30, pageW, 12, 'F');
+      doc.setTextColor(255,255,255);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(22);
+      doc.text('Athens Community', margin, 16);
+      doc.setFontSize(11);
+      doc.setFont('helvetica','normal');
+      doc.text('Facility Management Report', margin, 25);
+      doc.setFontSize(8);
+      doc.text(`Generated: ${new Date().toLocaleString()}  |  By: ${user.name}`, margin, 37);
+      y = 52;
+
+      // ── Summary boxes ─────────────────────────────────────────────────────────
+      const bkTasks = tasks.filter(t => t.status === 'backlog');
+      const ipTasks = tasks.filter(t => t.status === 'in-progress');
+      const dnTasks = tasks.filter(t => t.status === 'done');
+      const boxW = (contentW - 8) / 3;
+      const summaries = [
+        { label: 'Backlog', count: bkTasks.length, r:107,g:114,b:128 },
+        { label: 'In Progress', count: ipTasks.length, r:102,g:126,b:234 },
+        { label: 'Done', count: dnTasks.length, r:16,g:185,b:129 },
+      ];
+      summaries.forEach(({ label, count, r, g, b }, i) => {
+        const bx = margin + i * (boxW + 4);
+        doc.setFillColor(r,g,b);
+        doc.rect(bx, y, boxW, 18, 'F');
+        doc.setTextColor(255,255,255);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(18);
+        doc.text(String(count), bx + boxW/2, y + 11, { align:'center' });
+        doc.setFontSize(7);
+        doc.setFont('helvetica','normal');
+        doc.text(label, bx + boxW/2, y + 16, { align:'center' });
+      });
+      y += 26;
+
+      const pColors = { low:[16,185,129], medium:[245,158,11], high:[239,68,68], critical:[220,38,38] };
+      const sections = [
+        { label:'BACKLOG', tasks: bkTasks, hR:107,hG:114,hB:128 },
+        { label:'IN PROGRESS', tasks: ipTasks, hR:102,hG:126,hB:234 },
+        { label:'DONE', tasks: dnTasks, hR:16,hG:185,hB:129 },
+      ];
+
+      for (const section of sections) {
+        if (!section.tasks.length) continue;
+
+        checkPage(18);
+        // Section header bar
+        doc.setFillColor(section.hR, section.hG, section.hB);
+        doc.rect(margin, y, contentW, 9, 'F');
+        doc.setTextColor(255,255,255);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(9);
+        doc.text(`${section.label}  (${section.tasks.length} task${section.tasks.length !== 1 ? 's' : ''})`, margin + 4, y + 6.2);
+        y += 13;
+
+        for (const task of section.tasks) {
+          const taskImgs = (() => {
+            const slots = Array.isArray(images[task.id])
+              ? images[task.id]
+              : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null);
+            return (slots || []).filter(Boolean);
+          })();
+
+          const descLines = task.description
+            ? doc.splitTextToSize(task.description, contentW - 14).slice(0,3)
+            : [];
+          const hasImgs = taskImgs.length > 0;
+          const imgH = hasImgs ? (taskImgs.length === 1 ? 58 : 45) : 0;
+          const commentLines = (task.comments || []).slice(0,3);
+          const cardH = 8 + (task.athensId ? 5 : 0) + 7 + (descLines.length * 4) + 7 + (hasImgs ? imgH + 4 : 0) + (commentLines.length * 8) + 5;
+
+          checkPage(cardH + 4);
+
+          // Card background + left priority stripe
+          const [pcR,pcG,pcB] = pColors[task.priority] || [107,114,128];
+          doc.setFillColor(249,250,251);
+          doc.setDrawColor(229,231,235);
+          doc.rect(margin, y, contentW, cardH, 'FD');
+          doc.setFillColor(pcR,pcG,pcB);
+          doc.rect(margin, y, 3.5, cardH, 'F');
+
+          let cy = y + 7;
+
+          // Title
+          doc.setTextColor(17,24,39);
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(10);
+          const titleLines = doc.splitTextToSize(task.title, contentW - 20);
+          doc.text(titleLines[0], margin + 7, cy);
+          cy += 5;
+
+          // Athens ID
+          if (task.athensId) {
+            doc.setFont('helvetica','normal');
+            doc.setFontSize(7);
+            doc.setTextColor(102,126,234);
+            doc.text(task.athensId, margin + 7, cy);
+            cy += 5;
+          }
+
+          // Priority / Category / Label badges
+          let bx = margin + 7;
+          const drawBadge = (text, bgR, bgG, bgB, fgR=255, fgG=255, fgB=255) => {
+            doc.setFont('helvetica','bold');
+            doc.setFontSize(6.5);
+            const tw = doc.getTextWidth(text);
+            const bw = tw + 5;
+            doc.setFillColor(bgR,bgG,bgB);
+            doc.roundedRect(bx, cy - 3, bw, 5, 1, 1, 'F');
+            doc.setTextColor(fgR,fgG,fgB);
+            doc.text(text, bx + 2.5, cy + 0.8);
+            bx += bw + 3;
+          };
+          drawBadge(task.priority.toUpperCase(), pcR, pcG, pcB);
+          drawBadge(task.category, 124, 58, 237);
+          if (task.label) {
+            const lm = LABELS.find(l => l.key === task.label);
+            if (lm) { const [lr,lg,lb] = hexToRgb(lm.color); drawBadge(lm.label, lr, lg, lb); }
+          }
+          cy += 7;
+
+          // Description
+          if (descLines.length) {
+            doc.setTextColor(107,114,128);
+            doc.setFont('helvetica','normal');
+            doc.setFontSize(7.5);
+            doc.text(descLines, margin + 7, cy);
+            cy += descLines.length * 4;
+          }
+
+          // Dates row
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(7);
+          doc.setTextColor(107,114,128);
+          let dateStr = `Due: ${task.dueDate}`;
+          if (task.startDate) dateStr += `   Started: ${task.startDate}`;
+          if (task.completionDate) dateStr += `   Completed: ${task.completionDate}`;
+          if (task.assignedEmail) dateStr += `   Assigned: ${task.assignedEmail}`;
+          doc.text(dateStr, margin + 7, cy);
+          cy += 7;
+
+          // Images
+          if (hasImgs) {
+            const gap = 3;
+            const iw = taskImgs.length === 1 ? Math.min(contentW - 14, 90) : (contentW - 14 - gap * (taskImgs.length - 1)) / taskImgs.length;
+            let ix = margin + 7;
+            for (const src of taskImgs) {
+              try {
+                doc.addImage(src, 'JPEG', ix, cy, iw, imgH, undefined, 'FAST');
+              } catch(_) {}
+              ix += iw + gap;
+            }
+            cy += imgH + 4;
+          }
+
+          // Comments
+          if (commentLines.length) {
+            doc.setFont('helvetica','bold');
+            doc.setFontSize(6.5);
+            doc.setTextColor(55,65,81);
+            doc.text('Comments:', margin + 7, cy);
+            cy += 5;
+            commentLines.forEach(c => {
+              doc.setFont('helvetica','normal');
+              doc.setFontSize(6.5);
+              doc.setTextColor(75,85,99);
+              const cLines = doc.splitTextToSize(`${c.userName || c.user}: ${c.text}`, contentW - 18);
+              doc.text(cLines[0], margin + 9, cy);
+              cy += 4.5;
+            });
+          }
+
+          y += cardH + 3;
+        }
+        y += 5;
+      }
+
+      // Page numbers
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFont('helvetica','normal');
+        doc.setFontSize(7);
+        doc.setTextColor(156,163,175);
+        doc.text(`Athens Community Facility Tracker  •  Page ${p} of ${totalPages}`, pageW / 2, pageH - 6, { align:'center' });
+      }
+
+      doc.save(`Athens_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      const updatedLogs = log('EXPORTED', '', 'PDF report downloaded');
+      saveLogs(updatedLogs);
+    } catch (e) {
+      console.error('PDF export error:', e);
+      alert('PDF generation failed: ' + e.message);
+    }
+    setPdfGenerating(false);
+  };
+
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
 
   const categoryMeta = [
@@ -621,7 +842,69 @@ const App = () => {
           </div>
         </div>
 
+        {/* ── Tab Bar ── */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+          <button onClick={() => setActiveTab('dashboard')} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'dashboard' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'dashboard' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'dashboard' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <CheckCircle2 size={16} />Dashboard
+          </button>
+          {user.role === 'admin' && (
+            <button onClick={() => setActiveTab('admin')} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'admin' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'admin' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'admin' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Shield size={16} />Admin Report
+            </button>
+          )}
+        </div>
+
+        {/* ── Admin Report Tab ── */}
+        {activeTab === 'admin' && (
+          <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FileText size={22} color="white" />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>PDF Report</h2>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Download all tasks with images as a PDF document</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', margin: '2rem 0' }}>
+              {[
+                { label: 'Backlog', count: tasks.filter(t=>t.status==='backlog').length, color:'#6b7280', bg:'#f3f4f6' },
+                { label: 'In Progress', count: tasks.filter(t=>t.status==='in-progress').length, color:'#667eea', bg:'#ede9fe' },
+                { label: 'Done', count: tasks.filter(t=>t.status==='done').length, color:'#10b981', bg:'#d1fae5' },
+              ].map(({ label, count, color, bg }) => (
+                <div key={label} style={{ padding: '1.25rem', background: bg, borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '2.2rem', fontWeight: 800, color }}>{count}</div>
+                  <div style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: '#f9fafb', borderRadius: '12px', padding: '1.25rem', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
+              <div style={{ fontWeight: 700, color: '#374151', marginBottom: '0.5rem', fontSize: '0.9rem' }}>What's included in the PDF:</div>
+              <ul style={{ margin: 0, paddingLeft: '1.25rem', color: '#6b7280', fontSize: '0.875rem', lineHeight: '1.9' }}>
+                <li>Cover page with report summary (Backlog / In Progress / Done counts)</li>
+                <li>All tasks grouped by status with priority colour coding</li>
+                <li>Task details: title, ID, category, label, description, due dates</li>
+                <li>Embedded photos (up to 3 per task)</li>
+                <li>Comments (up to 3 per task)</li>
+                <li>Page numbers on every page</li>
+              </ul>
+            </div>
+
+            <button
+              onClick={exportPdf}
+              disabled={pdfGenerating || tasks.length === 0}
+              style={{ padding: '0.9rem 2.5rem', background: pdfGenerating ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: pdfGenerating || tasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+              <FileText size={18} />
+              {pdfGenerating ? 'Generating PDF…' : `Download PDF Report (${tasks.length} task${tasks.length !== 1 ? 's' : ''})`}
+            </button>
+            {tasks.length === 0 && <p style={{ marginTop: '0.75rem', color: '#9ca3af', fontSize: '0.8rem' }}>No tasks to export.</p>}
+          </div>
+        )}
+
         {/* ── Tasks by Category Dashboard ── */}
+        {activeTab === 'dashboard' && <>
         {catData.length > 0 && (
           <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem 2rem', marginBottom: '2rem' }}>
             <h2 style={{ margin: '0 0 1.25rem 0', fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Tasks by Category</h2>
@@ -778,6 +1061,7 @@ const App = () => {
             );
           })}
         </div>
+        </>}
       </div>
 
       {modal && (
