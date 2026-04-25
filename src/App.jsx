@@ -18,6 +18,9 @@ const App = () => {
     { key: 'block-d',     label: 'Block D',     color: '#ef4444' },
     { key: 'block-e',     label: 'Block E',     color: '#f59e0b' },
     { key: 'block-f',     label: 'Block F',     color: '#ec4899' },
+    { key: 'clubhouse',       label: 'Clubhouse',        color: '#6366f1' },
+    { key: 'stilt-parking',   label: 'Stilt Parking',    color: '#0d9488' },
+    { key: 'basement-parking',label: 'Basement Parking', color: '#78716c' },
   ];
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
