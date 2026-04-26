@@ -655,6 +655,101 @@ const App = () => {
     setPdfGenerating(false);
   };
 
+  const makeBacklogPdfBase64 = async (bkTasks) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = 210, pageH = 297, margin = 14, contentW = pageW - margin * 2;
+    let y = 0;
+    const checkPage = (needed = 20) => { if (y + needed > pageH - margin) { doc.addPage(); y = margin; } };
+    const hexToRgb = hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+
+    doc.setFillColor(102, 126, 234); doc.rect(0, 0, pageW, 42, 'F');
+    doc.setFillColor(118, 75, 162); doc.rect(0, 30, pageW, 12, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(22);
+    doc.text('Athens Community', margin, 16);
+    doc.setFontSize(11); doc.setFont('helvetica','normal');
+    doc.text('Backlog Tasks Report', margin, 25);
+    doc.setFontSize(8);
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  By: ${user.name}`, margin, 37);
+    y = 52;
+
+    doc.setFillColor(107, 114, 128); doc.rect(margin, y, contentW, 18, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(18);
+    doc.text(String(bkTasks.length), margin + contentW/2, y + 11, { align:'center' });
+    doc.setFontSize(7); doc.setFont('helvetica','normal');
+    doc.text('Backlog Tasks', margin + contentW/2, y + 16, { align:'center' });
+    y += 26;
+
+    const pColors = { low:[16,185,129], medium:[245,158,11], high:[239,68,68], critical:[220,38,38] };
+    checkPage(18);
+    doc.setFillColor(107, 114, 128); doc.rect(margin, y, contentW, 9, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(`BACKLOG  (${bkTasks.length} task${bkTasks.length !== 1 ? 's' : ''})`, margin + 4, y + 6.2);
+    y += 13;
+
+    for (const task of bkTasks) {
+      const taskImgs = (() => {
+        const slots = Array.isArray(images[task.id]) ? images[task.id] : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null);
+        return (slots || []).filter(Boolean);
+      })();
+      const descLines = task.description ? doc.splitTextToSize(task.description, contentW - 14).slice(0,3) : [];
+      const hasImgs = taskImgs.length > 0;
+      const imgH = hasImgs ? (taskImgs.length === 1 ? 58 : 45) : 0;
+      const commentLines = (task.comments || []).slice(0,3);
+      const cardH = 8 + (task.athensId ? 5 : 0) + 7 + (descLines.length * 4) + 7 + (hasImgs ? imgH + 4 : 0) + (commentLines.length * 8) + 5;
+      checkPage(cardH + 4);
+
+      const [pcR,pcG,pcB] = pColors[task.priority] || [107,114,128];
+      doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.rect(margin, y, contentW, cardH, 'FD');
+      doc.setFillColor(pcR,pcG,pcB); doc.rect(margin, y, 3.5, cardH, 'F');
+      let cy = y + 7;
+
+      doc.setTextColor(17,24,39); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(task.title, contentW - 20)[0], margin + 7, cy); cy += 5;
+      if (task.athensId) { doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(102,126,234); doc.text(task.athensId, margin + 7, cy); cy += 5; }
+
+      let bx = margin + 7;
+      const drawBadge = (text, bgR, bgG, bgB) => {
+        doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+        const bw = doc.getTextWidth(text) + 5;
+        doc.setFillColor(bgR,bgG,bgB); doc.roundedRect(bx, cy - 3, bw, 5, 1, 1, 'F');
+        doc.setTextColor(255,255,255); doc.text(text, bx + 2.5, cy + 0.8); bx += bw + 3;
+      };
+      drawBadge(task.priority.toUpperCase(), pcR, pcG, pcB);
+      drawBadge(task.category, 124, 58, 237);
+      if (task.label) { const lm = LABELS.find(l => l.key === task.label); if (lm) { const [lr,lg,lb] = hexToRgb(lm.color); drawBadge(lm.label, lr, lg, lb); } }
+      cy += 7;
+
+      if (descLines.length) { doc.setTextColor(107,114,128); doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.text(descLines, margin + 7, cy); cy += descLines.length * 4; }
+
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(107,114,128);
+      let dateStr = `Due: ${task.dueDate}`;
+      if (task.startDate) dateStr += `   Started: ${task.startDate}`;
+      if (task.assignedEmail) dateStr += `   Assigned: ${task.assignedEmail}`;
+      doc.text(dateStr, margin + 7, cy); cy += 7;
+
+      if (hasImgs) {
+        const gap = 3;
+        const iw = taskImgs.length === 1 ? Math.min(contentW - 14, 90) : (contentW - 14 - gap * (taskImgs.length - 1)) / taskImgs.length;
+        let ix = margin + 7;
+        for (const src of taskImgs) { try { doc.addImage(src, 'JPEG', ix, cy, iw, imgH, undefined, 'FAST'); } catch(_) {} ix += iw + gap; }
+        cy += imgH + 4;
+      }
+
+      if (commentLines.length) {
+        doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(55,65,81); doc.text('Comments:', margin + 7, cy); cy += 5;
+        commentLines.forEach(c => { doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(75,85,99); doc.text(doc.splitTextToSize(`${c.userName || c.user}: ${c.text}`, contentW - 18)[0], margin + 9, cy); cy += 4.5; });
+      }
+      y += cardH + 3;
+    }
+
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(156,163,175);
+      doc.text(`Athens Community Facility Tracker  •  Page ${p} of ${totalPages}`, pageW / 2, pageH - 6, { align:'center' });
+    }
+    return doc.output('datauristring').split(',')[1];
+  };
+
   const sendBacklogNotify = async () => {
     const emailList = notifyEmails
       .split(/[\n,;]+/)
@@ -666,10 +761,12 @@ const App = () => {
     setNotifySending(true);
     setNotifyResult(null);
     try {
+      const pdfBase64 = await makeBacklogPdfBase64(backlogTasks);
+      const pdfFilename = `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`;
       const res = await fetch(`${API_URL}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: emailList, message: notifyMessage }),
+        body: JSON.stringify({ emails: emailList, message: notifyMessage, pdfBase64, pdfFilename }),
       });
       const data = await res.json();
       if (res.ok) {

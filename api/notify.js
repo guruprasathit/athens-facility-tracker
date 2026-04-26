@@ -131,7 +131,7 @@ export default async function handler(req, res) {
 
   // ── Bulk backlog notify (POST) ────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { emails, message } = req.body || {};
+    const { emails, message, pdfBase64, pdfFilename } = req.body || {};
     if (!Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'emails array is required' });
     }
@@ -146,10 +146,14 @@ export default async function handler(req, res) {
     const results = [];
     for (const email of emails) {
       try {
+        const payload = { from: FROM, to: email, subject, html };
+        if (pdfBase64) {
+          payload.attachments = [{ filename: pdfFilename || 'Athens_Backlog.pdf', content: pdfBase64 }];
+        }
         const r = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: FROM, to: email, subject, html }),
+          body: JSON.stringify(payload),
         });
         if (r.ok) { sent++; results.push({ email, status: 'sent' }); }
         else { const b = await r.json().catch(() => ({})); results.push({ email, status: 'failed', error: b.message || r.statusText }); }

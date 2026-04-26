@@ -121,7 +121,7 @@ app.get('/api/notify', (req, res) => {
 
 // POST /api/notify — local dev stub for bulk backlog notifications
 app.post('/api/notify', (req, res) => {
-  const { emails = [], message } = req.body || {};
+  const { emails = [], message, pdfBase64, pdfFilename } = req.body || {};
   const tasks = getData('tasks');
   const backlogTasks = tasks.filter(t => t.status === 'backlog');
   if (backlogTasks.length === 0) return res.status(400).json({ error: 'No backlog tasks to notify about' });
@@ -130,6 +130,8 @@ app.post('/api/notify', (req, res) => {
     sent: emails.length,
     total: emails.length,
     backlogCount: backlogTasks.length,
+    hasAttachment: !!pdfBase64,
+    attachmentName: pdfFilename || null,
     results: emails.map(email => ({ email, status: 'sent' })),
     _devNote: 'Dev mode — emails not actually sent. Set RESEND_API_KEY in production.',
   });
