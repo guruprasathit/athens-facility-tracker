@@ -12,6 +12,10 @@ const App = () => {
   const [labelFilter, setLabelFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [notifyEmails, setNotifyEmails] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifySending, setNotifySending] = useState(false);
+  const [notifyResult, setNotifyResult] = useState(null);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -651,6 +655,36 @@ const App = () => {
     setPdfGenerating(false);
   };
 
+  const sendBacklogNotify = async () => {
+    const emailList = notifyEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('There are no backlog tasks to notify about.'); return; }
+    setNotifySending(true);
+    setNotifyResult(null);
+    try {
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: notifyMessage }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotifyResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Backlog notification sent to ${emailList.length} recipient(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setNotifyResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setNotifyResult({ success: false, error: err.message });
+    }
+    setNotifySending(false);
+  };
+
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
 
   const categoryMeta = [
@@ -852,6 +886,11 @@ const App = () => {
               <Shield size={16} />Admin Report
             </button>
           )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('notify'); setNotifyResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'notify' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'notify' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'notify' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Mail size={16} />Notify Backlog
+            </button>
+          )}
         </div>
 
         {/* ── Admin Report Tab ── */}
@@ -902,6 +941,102 @@ const App = () => {
             {tasks.length === 0 && <p style={{ marginTop: '0.75rem', color: '#9ca3af', fontSize: '0.8rem' }}>No tasks to export.</p>}
           </div>
         )}
+
+        {/* ── Notify Backlog Tab ── */}
+        {activeTab === 'notify' && (() => {
+          const backlogTasks = tasks.filter(t => t.status === 'backlog');
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Mail size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Notify Backlog</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Send all backlog tasks to one or more recipients with a custom message</p>
+                </div>
+              </div>
+
+              {/* Backlog task preview */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Circle size={14} style={{ color: '#667eea' }} />
+                  Backlog Tasks ({backlogTasks.length})
+                </div>
+                {backlogTasks.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center' }}>
+                    No tasks currently in the backlog.
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {backlogTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      return (
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1 }}>{t.title}</span>
+                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                          <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recipient email(s) */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={notifyEmails}
+                  onChange={e => setNotifyEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Custom message */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
+                </label>
+                <textarea
+                  value={notifyMessage}
+                  onChange={e => setNotifyMessage(e.target.value)}
+                  placeholder="Please review the outstanding backlog tasks and take action where necessary…"
+                  rows={4}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Result banner */}
+              {notifyResult && (
+                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: notifyResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${notifyResult.success ? '#6ee7b7' : '#fca5a5'}`, color: notifyResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {notifyResult.success
+                    ? `Emails sent — ${notifyResult.sent} of ${notifyResult.total} recipients received the notification.`
+                    : `Failed to send: ${notifyResult.error}`}
+                </div>
+              )}
+
+              <button
+                onClick={sendBacklogNotify}
+                disabled={notifySending || backlogTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: notifySending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: notifySending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+                <Send size={18} />
+                {notifySending ? 'Sending…' : `Send to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
 
         {/* ── Tasks by Category Dashboard ── */}
         {activeTab === 'dashboard' && <>

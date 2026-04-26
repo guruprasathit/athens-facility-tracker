@@ -118,3 +118,19 @@ app.delete('/api/images', (req, res) => {
 app.get('/api/notify', (req, res) => {
   res.json({ message: 'Notify endpoint is only active in production (Vercel). Set RESEND_API_KEY to enable email alerts.' });
 });
+
+// POST /api/notify — local dev stub for bulk backlog notifications
+app.post('/api/notify', (req, res) => {
+  const { emails = [], message } = req.body || {};
+  const tasks = getData('tasks');
+  const backlogTasks = tasks.filter(t => t.status === 'backlog');
+  if (backlogTasks.length === 0) return res.status(400).json({ error: 'No backlog tasks to notify about' });
+  if (emails.length === 0) return res.status(400).json({ error: 'emails array is required' });
+  res.json({
+    sent: emails.length,
+    total: emails.length,
+    backlogCount: backlogTasks.length,
+    results: emails.map(email => ({ email, status: 'sent' })),
+    _devNote: 'Dev mode — emails not actually sent. Set RESEND_API_KEY in production.',
+  });
+});
