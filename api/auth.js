@@ -19,18 +19,34 @@ export default async function handler(req, res) {
   const password = (body.password || '').trim();
   const name = (body.name || '').trim();
 
-  if (!identifier || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
+  if (!identifier) return res.status(400).json({ error: 'Email is required.' });
+
+  // ── RESET PASSWORD ────────────────────────────────────────────────────────
+  if (action === 'reset-password') {
+    const { newPassword } = body;
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    try {
+      const userData = await get(`user:${identifier}`);
+      if (!userData) return res.status(404).json({ error: 'Email not found.' });
+      await set(`user:${identifier}`, { ...userData, password: newPassword });
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error('[Auth] Reset error:', err.message);
+      return res.status(500).json({ error: 'Password reset failed. Please try again.' });
+    }
   }
+
+  if (!password) return res.status(400).json({ error: 'Password is required.' });
 
   // ── REGISTER ──────────────────────────────────────────────────────────────
   if (action === 'register') {
     if (!name) return res.status(400).json({ error: 'Full name is required.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) return res.status(400).json({ error: 'Please enter a valid email address.' });
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
     try {
       const existing = await get(`user:${identifier}`);
-      if (existing) return res.status(409).json({ error: 'Username already exists.' });
+      if (existing) return res.status(409).json({ error: 'This email is already registered.' });
 
       const userCount = (await get('userCount')) || 0;
       const role = userCount === 0 ? 'admin' : 'member';
@@ -63,8 +79,8 @@ export default async function handler(req, res) {
   // 2. Check stored users
   try {
     const userData = await get(`user:${identifier}`);
-    if (!userData) return res.status(401).json({ error: 'Invalid username or password.' });
-    if (userData.password !== password) return res.status(401).json({ error: 'Invalid username or password.' });
+    if (!userData) return res.status(401).json({ error: 'Invalid email or password.' });
+    if (userData.password !== password) return res.status(401).json({ error: 'Invalid email or password.' });
 
     console.log(`[Auth] Login: ${identifier}`);
     return res.status(200).json({
@@ -74,6 +90,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);
-    return res.status(401).json({ error: 'Invalid username or password.' });
+    return res.status(401).json({ error: 'Invalid email or password.' });
   }
 }

@@ -38,7 +38,9 @@ const App = () => {
   const [edit, setEdit] = useState(null);
   const [status, setStatus] = useState('loading');
   const [loginError, setLoginError] = useState('');
+  const [loginSuccess, setLoginSuccess] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmail: '' });
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
@@ -180,14 +182,39 @@ const App = () => {
     } catch (e) { console.error('Error saving logs:', e); }
   };
 
+  const forgotPassword = async () => {
+    setLoginError('');
+    setLoginSuccess('');
+    if (!username.trim()) { setLoginError('Please enter your email.'); return; }
+    if (!password || password.length < 6) { setLoginError('New password must be at least 6 characters.'); return; }
+    if (password !== confirmPassword) { setLoginError('Passwords do not match.'); return; }
+    try {
+      const res = await fetch(`${API_URL}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset-password', email: username.toLowerCase().trim(), newPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setLoginError(data.error || 'Reset failed. Please try again.'); return; }
+      setIsForgotPassword(false);
+      setPassword('');
+      setConfirmPassword('');
+      setLoginSuccess('Password reset successfully. Please sign in.');
+    } catch {
+      setLoginError('Connection error. Please try again.');
+    }
+  };
+
   const login = async () => {
     setLoginError('');
+    setLoginSuccess('');
 
-    if (!username.trim()) { setLoginError('Please enter your username.'); return; }
+    if (!username.trim()) { setLoginError('Please enter your email.'); return; }
     if (!password.trim()) { setLoginError('Please enter your password.'); return; }
 
     if (isRegistering) {
       if (!name.trim()) { setLoginError('Please enter your full name.'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username.trim())) { setLoginError('Please enter a valid email address.'); return; }
       if (password.length < 6) { setLoginError('Password must be at least 6 characters.'); return; }
       if (password !== confirmPassword) { setLoginError('Passwords do not match.'); return; }
     }
@@ -253,7 +280,9 @@ const App = () => {
       setPassword('');
       setConfirmPassword('');
       setLoginError('');
+      setLoginSuccess('');
       setIsRegistering(false);
+      setIsForgotPassword(false);
     }, 500);
   };
 
@@ -844,6 +873,10 @@ const App = () => {
         @keyframes spin { to{transform:rotate(360deg)} }
         .switch-link { text-align:center; margin-top:20px; font-size:13px; color:rgba(255,255,255,0.3); }
         .switch-link button { background:none; border:none; color:#f0c93a; font-weight:600; cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:13px; text-decoration:underline; }
+        .forgot-link { text-align:right; margin-top:-10px; margin-bottom:16px; }
+        .forgot-link button { background:none; border:none; color:rgba(212,175,55,0.6); font-size:12px; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; }
+        .forgot-link button:hover { color:#f0c93a; }
+        .success-box { background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:3px; padding:10px 14px; margin-bottom:18px; font-size:13px; color:#6ee7b7; letter-spacing:0.3px; }
         .login-footer { text-align:center; margin-top:24px; font-size:11px; color:rgba(255,255,255,0.2); letter-spacing:1px; text-transform:uppercase; }
         .login-footer strong { color:rgba(212,175,55,0.4); }
       `}</style>
@@ -856,86 +889,152 @@ const App = () => {
           </div>
 
           <div className="login-divider">
-            <span /><p>{isRegistering ? 'Register' : 'Sign In'}</p><span />
+            <span /><p>{isForgotPassword ? 'Reset Password' : isRegistering ? 'Register' : 'Sign In'}</p><span />
           </div>
 
           {loginError && <div className="error-box">⚠ {loginError}</div>}
+          {loginSuccess && <div className="success-box">✓ {loginSuccess}</div>}
 
-          {isRegistering && (
-            <div className="field">
-              <label>Full Name</label>
-              <div className="field-wrap">
-                <input
-                  type="text"
-                  placeholder="Your full name"
-                  value={name}
-                  onChange={e => { setName(e.target.value); setLoginError(''); }}
-                  onKeyPress={e => e.key === 'Enter' && login()}
-                  autoFocus
-                />
+          {isForgotPassword ? (
+            <>
+              <div className="field">
+                <label>Email</label>
+                <div className="field-wrap">
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={username}
+                    onChange={e => { setUsername(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoFocus
+                    autoComplete="email"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+              <div className="field">
+                <label>New Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="has-toggle"
+                    placeholder="At least 6 characters"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoComplete="new-password"
+                  />
+                  <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
+                    {showPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Confirm New Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Confirm new password"
+                    value={confirmPassword}
+                    onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+              <button className="submit-btn" onClick={forgotPassword}>Reset Password</button>
+              <div className="switch-link">
+                <button onClick={() => { setIsForgotPassword(false); setLoginError(''); setPassword(''); setConfirmPassword(''); setUsername(''); }}>
+                  Back to Sign In
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {isRegistering && (
+                <div className="field">
+                  <label>Full Name</label>
+                  <div className="field-wrap">
+                    <input
+                      type="text"
+                      placeholder="Your full name"
+                      value={name}
+                      onChange={e => { setName(e.target.value); setLoginError(''); }}
+                      onKeyPress={e => e.key === 'Enter' && login()}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              )}
 
-          <div className="field">
-            <label>Username</label>
-            <div className="field-wrap">
-              <input
-                type="text"
-                placeholder="Enter your username"
-                value={username}
-                onChange={e => { setUsername(e.target.value); setLoginError(''); }}
-                onKeyPress={e => e.key === 'Enter' && login()}
-                autoFocus={!isRegistering}
-                autoComplete="username"
-              />
-            </div>
-          </div>
+              <div className="field">
+                <label>Email</label>
+                <div className="field-wrap">
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={username}
+                    onChange={e => { setUsername(e.target.value); setLoginError(''); setLoginSuccess(''); }}
+                    onKeyPress={e => e.key === 'Enter' && login()}
+                    autoFocus={!isRegistering}
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
 
-          <div className="field">
-            <label>Password</label>
-            <div className="field-wrap">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                className="has-toggle"
-                placeholder="Enter your password"
-                value={password}
-                onChange={e => { setPassword(e.target.value); setLoginError(''); }}
-                onKeyPress={e => e.key === 'Enter' && login()}
-                autoComplete={isRegistering ? 'new-password' : 'current-password'}
-              />
-              <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
-                {showPassword ? '🙈' : '👁'}
+              <div className="field">
+                <label>Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="has-toggle"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && login()}
+                    autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  />
+                  <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
+                    {showPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+
+              {!isRegistering && (
+                <div className="forgot-link">
+                  <button onClick={() => { setIsForgotPassword(true); setLoginError(''); setLoginSuccess(''); setPassword(''); setConfirmPassword(''); }}>
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
+              {isRegistering && (
+                <div className="field">
+                  <label>Confirm Password</label>
+                  <div className="field-wrap">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
+                      onKeyPress={e => e.key === 'Enter' && login()}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button className="submit-btn" onClick={login}>
+                {isRegistering ? 'Create Account' : 'Sign In'}
               </button>
-            </div>
-          </div>
 
-          {isRegistering && (
-            <div className="field">
-              <label>Confirm Password</label>
-              <div className="field-wrap">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
-                  onKeyPress={e => e.key === 'Enter' && login()}
-                  autoComplete="new-password"
-                />
+              <div className="switch-link">
+                {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
+                <button onClick={() => { setIsRegistering(!isRegistering); setLoginError(''); setLoginSuccess(''); setPassword(''); setConfirmPassword(''); }}>
+                  {isRegistering ? 'Sign In' : 'Register'}
+                </button>
               </div>
-            </div>
+            </>
           )}
-
-          <button className="submit-btn" onClick={login}>
-            {isRegistering ? 'Create Account' : 'Sign In'}
-          </button>
-
-          <div className="switch-link">
-            {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
-            <button onClick={() => { setIsRegistering(!isRegistering); setLoginError(''); setPassword(''); setConfirmPassword(''); }}>
-              {isRegistering ? 'Sign In' : 'Register'}
-            </button>
-          </div>
 
           <div className="login-footer"><strong>CAAOA</strong> · Casagrand Athens</div>
         </div>
