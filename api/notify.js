@@ -8,6 +8,50 @@ import { get, set } from './_storage.js';
 
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend.dev>';
 
+function taskNotifyEmailHtml(task, taskImages, customMessage) {
+  const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
+  const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
+  const imgs = (taskImages || []).filter(img => img && (img.dataUrl || typeof img === 'string'));
+  const imageSection = imgs.length > 0 ? `
+    <div style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">📷 Photos (${imgs.length})</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${imgs.map((img, i) => `<img src="${img.dataUrl || img}" alt="Photo ${i + 1}" style="max-width:180px;max-height:180px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover" />`).join('')}
+      </div>
+    </div>` : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:system-ui,sans-serif">
+  <div style="max-width:600px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:28px 32px">
+      <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Athens Community Facility Tracker</div>
+      <h1 style="margin:0;color:white;font-size:22px;font-weight:700">📋 Backlog Task</h1>
+    </div>
+    <div style="padding:28px 32px">
+      ${customMessage ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 18px;margin-bottom:24px;color:#1e40af;font-size:14px;line-height:1.6">${customMessage}</div>` : ''}
+      <div style="background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:24px">
+        <div style="font-size:18px;font-weight:700;color:#111827;margin-bottom:8px">${task.title}</div>
+        ${task.description ? `<div style="color:#6b7280;font-size:14px;margin-bottom:12px">${task.description}</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span style="background:${priorityColor}22;color:${priorityColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${(task.priority || '').toUpperCase()}</span>
+          ${categoryLabel ? `<span style="background:#ede9fe;color:#7c3aed;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${categoryLabel}</span>` : ''}
+          <span style="background:#dbeafe;color:#3b82f6;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">Due: ${task.dueDate || '—'}</span>
+          <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">BACKLOG</span>
+        </div>
+        ${imageSection}
+      </div>
+      <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update this task.</p>
+    </div>
+    <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
+      This notification was sent by an administrator of the Athens Community Facility Tracker.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 function backlogEmailHtml(backlogTasks, customMessage) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' };
   const rows = backlogTasks.map(task => {
@@ -129,39 +173,36 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'RESEND_API_KEY environment variable is not set' });
   }
 
-  // ── Bulk backlog notify (POST) ────────────────────────────────────────────────
+  // ── Bulk backlog notify (POST) — one email per task per recipient ─────────────
   if (req.method === 'POST') {
-    const { emails, message, pdfBase64, pdfFilename } = req.body || {};
+    const { emails, message, tasks: payloadTasks } = req.body || {};
     if (!Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'emails array is required' });
     }
-    const allTasks = (await get('tasks')) || [];
-    const backlogTasks = allTasks.filter(t => t.status === 'backlog');
-    if (backlogTasks.length === 0) {
-      return res.status(400).json({ error: 'No backlog tasks to notify about' });
+    if (!Array.isArray(payloadTasks) || payloadTasks.length === 0) {
+      return res.status(400).json({ error: 'tasks array is required' });
     }
-    const html = backlogEmailHtml(backlogTasks, message || '');
-    const subject = `[Athens Tracker] Backlog Summary — ${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''} pending`;
     let sent = 0;
     const results = [];
-    for (const email of emails) {
-      try {
-        const payload = { from: FROM, to: email, subject, html };
-        if (pdfBase64) {
-          payload.attachments = [{ filename: pdfFilename || 'Athens_Backlog.pdf', content: pdfBase64 }];
+    for (const task of payloadTasks) {
+      const taskImages = (task.images || []).filter(img => img && (img.dataUrl || typeof img === 'string'));
+      const subject = `[Athens Tracker] Backlog: ${task.title}`;
+      const html = taskNotifyEmailHtml(task, taskImages, message || '');
+      for (const email of emails) {
+        try {
+          const r = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: FROM, to: email, subject, html }),
+          });
+          if (r.ok) { sent++; results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' }); }
+          else { const b = await r.json().catch(() => ({})); results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText }); }
+        } catch (err) {
+          results.push({ taskId: task.id, taskTitle: task.title, email, status: 'error', error: err.message });
         }
-        const r = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (r.ok) { sent++; results.push({ email, status: 'sent' }); }
-        else { const b = await r.json().catch(() => ({})); results.push({ email, status: 'failed', error: b.message || r.statusText }); }
-      } catch (err) {
-        results.push({ email, status: 'error', error: err.message });
       }
     }
-    return res.status(200).json({ sent, total: emails.length, backlogCount: backlogTasks.length, results });
+    return res.status(200).json({ sent, total: payloadTasks.length * emails.length, taskCount: payloadTasks.length, recipientCount: emails.length, results });
   }
 
   const tasks = (await get('tasks')) || [];

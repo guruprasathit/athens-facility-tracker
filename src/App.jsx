@@ -790,17 +790,22 @@ const App = () => {
     setNotifySending(true);
     setNotifyResult(null);
     try {
-      const pdfBase64 = await makeBacklogPdfBase64(backlogTasks);
-      const pdfFilename = `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`;
+      const tasksWithImages = backlogTasks.map(t => {
+        const rawSlots = Array.isArray(images[t.id]) ? images[t.id] : (images[t.id] ? [images[t.id]] : []);
+        const taskImages = rawSlots.filter(Boolean).map(img =>
+          typeof img === 'string' ? { dataUrl: img, name: 'photo.jpg' } : img
+        );
+        return { id: t.id, title: t.title, description: t.description, priority: t.priority, category: t.category, label: t.label, dueDate: t.dueDate, status: t.status, images: taskImages };
+      });
       const res = await fetch(`${API_URL}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: emailList, message: notifyMessage, pdfBase64, pdfFilename }),
+        body: JSON.stringify({ emails: emailList, message: notifyMessage, tasks: tasksWithImages }),
       });
       const data = await res.json();
       if (res.ok) {
         setNotifyResult({ success: true, ...data });
-        const updatedLogs = log('NOTIFY', '', `Backlog notification sent to ${emailList.length} recipient(s)`);
+        const updatedLogs = log('NOTIFY', '', `Backlog notification sent: ${data.taskCount} task(s) to ${emailList.length} recipient(s)`);
         saveLogs(updatedLogs);
       } else {
         setNotifyResult({ success: false, error: data.error || 'Unknown error' });
@@ -1164,15 +1169,27 @@ const App = () => {
                     No tasks currently in the backlog.
                   </div>
                 ) : (
-                  <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                  <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
                     {backlogTasks.map(t => {
                       const pc = pri[t.priority] || pri.medium;
+                      const taskImgs = (Array.isArray(images[t.id]) ? images[t.id] : (images[t.id] ? [images[t.id]] : [])).filter(Boolean);
                       return (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1 }}>{t.title}</span>
-                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
-                          <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
-                          <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                        <div key={t.id} style={{ padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1 }}>{t.title}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                            <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                          </div>
+                          {taskImgs.length > 0 && (
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                              {taskImgs.map((img, i) => {
+                                const src = img.dataUrl || img;
+                                return <img key={i} src={src} alt={`photo ${i + 1}`} onClick={() => setLightbox(src)} style={{ width: '52px', height: '52px', borderRadius: '6px', objectFit: 'cover', border: '1px solid #e5e7eb', cursor: 'pointer' }} />;
+                              })}
+                              <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>{taskImgs.length} photo{taskImgs.length > 1 ? 's' : ''}</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1218,7 +1235,7 @@ const App = () => {
               {notifyResult && (
                 <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: notifyResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${notifyResult.success ? '#6ee7b7' : '#fca5a5'}`, color: notifyResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
                   {notifyResult.success
-                    ? `Emails sent — ${notifyResult.sent} of ${notifyResult.total} recipients received the notification.`
+                    ? `${notifyResult.sent} of ${notifyResult.total} emails sent — ${notifyResult.taskCount} task${notifyResult.taskCount !== 1 ? 's' : ''} × ${notifyResult.recipientCount} recipient${notifyResult.recipientCount !== 1 ? 's' : ''}.`
                     : `Failed to send: ${notifyResult.error}`}
                 </div>
               )}
