@@ -8,15 +8,14 @@ import { get, set } from './_storage.js';
 
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend.dev>';
 
-function taskNotifyEmailHtml(task, taskImages, customMessage) {
+function taskNotifyEmailHtml(task, cidRefs, customMessage) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
-  const imgs = (taskImages || []).filter(img => img && (img.dataUrl || typeof img === 'string'));
-  const imageSection = imgs.length > 0 ? `
+  const imageSection = cidRefs.length > 0 ? `
     <div style="margin-top:16px">
-      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">📷 Photos (${imgs.length})</div>
+      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">📷 Photos (${cidRefs.length})</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${imgs.map((img, i) => `<img src="${img.dataUrl || img}" alt="Photo ${i + 1}" style="max-width:180px;max-height:180px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover" />`).join('')}
+        ${cidRefs.map((cid, i) => `<img src="cid:${cid}" alt="Photo ${i + 1}" style="max-width:180px;max-height:180px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover" />`).join('')}
       </div>
     </div>` : '';
 
@@ -186,14 +185,29 @@ export default async function handler(req, res) {
     const results = [];
     for (const task of payloadTasks) {
       const taskImages = (task.images || []).filter(img => img && (img.dataUrl || typeof img === 'string'));
+
+      // Build CID attachments — strip the data URL prefix to get raw base64
+      const attachments = taskImages.map((img, i) => {
+        const dataUrl = img.dataUrl || img;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        const content_type = match ? match[1] : 'image/jpeg';
+        const content = match ? match[2] : dataUrl;
+        const cid = `task${task.id}_photo${i}`;
+        return { filename: img.name || `photo${i + 1}.jpg`, content, content_type, content_id: cid };
+      });
+      const cidRefs = attachments.map(a => a.content_id);
+
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
-      const html = taskNotifyEmailHtml(task, taskImages, message || '');
+      const html = taskNotifyEmailHtml(task, cidRefs, message || '');
+
       for (const email of emails) {
         try {
+          const payload = { from: FROM, to: email, subject, html };
+          if (attachments.length > 0) payload.attachments = attachments;
           const r = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: FROM, to: email, subject, html }),
+            body: JSON.stringify(payload),
           });
           if (r.ok) { sent++; results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' }); }
           else { const b = await r.json().catch(() => ({})); results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText }); }
