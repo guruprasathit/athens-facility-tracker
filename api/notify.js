@@ -184,14 +184,17 @@ export default async function handler(req, res) {
     let sent = 0;
     const results = [];
     for (const task of payloadTasks) {
-      const taskImages = (task.images || []).filter(img => img && (img.dataUrl || typeof img === 'string'));
+      // Fetch images from KV directly — avoids sending large base64 payloads from the client
+      const [s0, s1, s2] = await Promise.all([
+        get(`img:${task.id}:0`), get(`img:${task.id}:1`), get(`img:${task.id}:2`),
+      ]);
+      const taskImages = [s0, s1, s2].filter(img => img && img.dataUrl);
 
       // Build CID attachments — strip the data URL prefix to get raw base64
       const attachments = taskImages.map((img, i) => {
-        const dataUrl = img.dataUrl || img;
-        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        const match = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
         const content_type = match ? match[1] : 'image/jpeg';
-        const content = match ? match[2] : dataUrl;
+        const content = match ? match[2] : img.dataUrl;
         const cid = `task${task.id}_photo${i}`;
         return { filename: img.name || `photo${i + 1}.jpg`, content, content_type, content_id: cid };
       });

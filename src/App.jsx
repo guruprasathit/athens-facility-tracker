@@ -790,17 +790,15 @@ const App = () => {
     setNotifySending(true);
     setNotifyResult(null);
     try {
-      const tasksWithImages = backlogTasks.map(t => {
-        const rawSlots = Array.isArray(images[t.id]) ? images[t.id] : (images[t.id] ? [images[t.id]] : []);
-        const taskImages = rawSlots.filter(Boolean).map(img =>
-          typeof img === 'string' ? { dataUrl: img, name: 'photo.jpg' } : img
-        );
-        return { id: t.id, title: t.title, description: t.description, priority: t.priority, category: t.category, label: t.label, dueDate: t.dueDate, status: t.status, images: taskImages };
-      });
+      const tasksPayload = backlogTasks.map(t => ({
+        id: t.id, title: t.title, description: t.description,
+        priority: t.priority, category: t.category, label: t.label,
+        dueDate: t.dueDate, status: t.status,
+      }));
       const res = await fetch(`${API_URL}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: emailList, message: notifyMessage, tasks: tasksWithImages }),
+        body: JSON.stringify({ emails: emailList, message: notifyMessage, tasks: tasksPayload }),
       });
       const data = await res.json();
       if (res.ok) {
