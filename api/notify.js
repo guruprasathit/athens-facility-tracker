@@ -181,14 +181,18 @@ export default async function handler(req, res) {
     if (!Array.isArray(payloadTasks) || payloadTasks.length === 0) {
       return res.status(400).json({ error: 'tasks array is required' });
     }
+    // Fetch all task images from KV in parallel across all tasks at once
+    const allTaskImages = await Promise.all(
+      payloadTasks.map(task => Promise.all([
+        get(`img:${task.id}:0`), get(`img:${task.id}:1`), get(`img:${task.id}:2`),
+      ]))
+    );
+
     let sent = 0;
     const results = [];
-    for (const task of payloadTasks) {
-      // Fetch images from KV directly — avoids sending large base64 payloads from the client
-      const [s0, s1, s2] = await Promise.all([
-        get(`img:${task.id}:0`), get(`img:${task.id}:1`), get(`img:${task.id}:2`),
-      ]);
-      const taskImages = [s0, s1, s2].filter(img => img && img.dataUrl);
+    for (let ti = 0; ti < payloadTasks.length; ti++) {
+      const task = payloadTasks[ti];
+      const taskImages = allTaskImages[ti].filter(img => img && img.dataUrl);
 
       // Build CID attachments — strip the data URL prefix to get raw base64
       const attachments = taskImages.map((img, i) => {
