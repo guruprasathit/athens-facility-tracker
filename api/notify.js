@@ -7,6 +7,8 @@
 import { get, set } from './_storage.js';
 
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend.dev>';
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const SEND_DELAY_MS = 500; // stay within Resend's 2 req/s rate limit
 
 function pdfBacklogEmailHtml(taskCount, customMessage) {
   return `<!DOCTYPE html>
@@ -215,7 +217,8 @@ export default async function handler(req, res) {
       };
       let sent = 0;
       const results = [];
-      for (const email of emails) {
+      for (let i = 0; i < emails.length; i++) {
+        const email = emails[i];
         try {
           const r = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -232,6 +235,7 @@ export default async function handler(req, res) {
         } catch (err) {
           results.push({ email, status: 'error', error: err.message });
         }
+        if (i < emails.length - 1) await sleep(SEND_DELAY_MS);
       }
       return res.status(200).json({ sent, total: emails.length, taskCount: count, recipientCount: emails.length, results });
     }
@@ -265,7 +269,8 @@ export default async function handler(req, res) {
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
       const html = taskNotifyEmailHtml(task, cidRefs, message || '');
 
-      for (const email of emails) {
+      for (let ei = 0; ei < emails.length; ei++) {
+        const email = emails[ei];
         try {
           const payload = { from: FROM, to: email, subject, html };
           if (attachments.length > 0) payload.attachments = attachments;
@@ -279,6 +284,7 @@ export default async function handler(req, res) {
         } catch (err) {
           results.push({ taskId: task.id, taskTitle: task.title, email, status: 'error', error: err.message });
         }
+        if (ei < emails.length - 1 || ti < payloadTasks.length - 1) await sleep(SEND_DELAY_MS);
       }
     }
     return res.status(200).json({ sent, total: payloadTasks.length * emails.length, taskCount: payloadTasks.length, recipientCount: emails.length, results });
