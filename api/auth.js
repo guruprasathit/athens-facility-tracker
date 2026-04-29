@@ -6,6 +6,15 @@ const FALLBACK_USERS = {
   guruprasath: { password: process.env.GURU_PASSWORD || 'athens2024', role: 'admin', name: 'Guruprasath' },
 };
 
+async function upsertUsersList(identifier, name, role, createdAt, lastSeen) {
+  const usersList = (await get('users')) || [];
+  const idx = usersList.findIndex(u => u.username === identifier);
+  const entry = { username: identifier, name, role, createdAt: createdAt || new Date().toISOString(), lastSeen };
+  if (idx >= 0) usersList[idx] = { ...usersList[idx], ...entry };
+  else usersList.push(entry);
+  await set('users', usersList);
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -50,10 +59,12 @@ export default async function handler(req, res) {
 
       const userCount = (await get('userCount')) || 0;
       const role = userCount === 0 ? 'admin' : 'member';
-      const newUser = { username: identifier, name, password, role, createdAt: new Date().toISOString() };
+      const createdAt = new Date().toISOString();
+      const newUser = { username: identifier, name, password, role, createdAt };
 
       await set(`user:${identifier}`, newUser);
       await set('userCount', userCount + 1);
+      await upsertUsersList(identifier, name, role, createdAt, null);
 
       console.log(`[Auth] Registered: ${identifier} (${role})`);
       return res.status(200).json({ success: true, user: { username: identifier, name, role } });
@@ -81,6 +92,10 @@ export default async function handler(req, res) {
     const userData = await get(`user:${identifier}`);
     if (!userData) return res.status(401).json({ error: 'Invalid email or password.' });
     if (userData.password !== password) return res.status(401).json({ error: 'Invalid email or password.' });
+
+    const lastSeen = new Date().toISOString();
+    await set(`user:${identifier}`, { ...userData, lastSeen });
+    await upsertUsersList(identifier, userData.name, userData.role, userData.createdAt, lastSeen).catch(() => {});
 
     console.log(`[Auth] Login: ${identifier}`);
     return res.status(200).json({

@@ -20,6 +20,8 @@ const App = () => {
   const [pdfMailMessage, setPdfMailMessage] = useState('');
   const [pdfMailSending, setPdfMailSending] = useState(false);
   const [pdfMailResult, setPdfMailResult] = useState(null);
+  const [usersData, setUsersData] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -867,6 +869,32 @@ const App = () => {
     setPdfMailSending(false);
   };
 
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/users`);
+      const data = await res.json();
+      if (Array.isArray(data)) setUsersData(data);
+    } catch (e) { console.error('Error loading users:', e); }
+    setUsersLoading(false);
+  };
+
+  const removeUser = async (username, userName) => {
+    if (username === user.username) { alert('You cannot remove your own account.'); return; }
+    if (!confirm(`Remove "${userName}" (${username}) from the portal? They will no longer be able to log in.`)) return;
+    try {
+      const res = await fetch(`${API_URL}/users?username=${encodeURIComponent(username)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setUsersData(prev => prev.filter(u => u.username !== username));
+        const updatedLogs = log('SYSTEM', '', `User removed: ${username}`);
+        saveLogs(updatedLogs);
+      } else {
+        alert(data.error || 'Failed to remove user.');
+      }
+    } catch (e) { alert(`Error: ${e.message}`); }
+  };
+
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
 
   const categoryMeta = [
@@ -1146,6 +1174,11 @@ const App = () => {
           {user.role === 'admin' && (
             <button onClick={() => { setActiveTab('pdfmail'); setPdfMailResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'pdfmail' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'pdfmail' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'pdfmail' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <FileText size={16} />Generate PDF &amp; Mail
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('users'); loadUsers(); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'users' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'users' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'users' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <User size={16} />Users
             </button>
           )}
         </div>
@@ -1437,6 +1470,115 @@ const App = () => {
                 <Send size={18} />
                 {pdfMailSending ? 'Generating &amp; Sending…' : `Send PDF to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
               </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Users Tab ── */}
+        {activeTab === 'users' && (() => {
+          const now = new Date();
+          const getStatus = (lastSeen) => {
+            if (!lastSeen) return { label: 'Never logged in', dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
+            const mins = (now - new Date(lastSeen)) / 60000;
+            if (mins < 30) return { label: 'Online now', dot: '#10b981', bg: '#d1fae5', text: '#065f46' };
+            if (mins < 60 * 24) return { label: 'Active today', dot: '#f59e0b', bg: '#fef3c7', text: '#92400e' };
+            return { label: `Last seen ${new Date(lastSeen).toLocaleDateString()}`, dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
+          };
+          const online = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 30).length;
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <User size={22} color="white" />
+                  </div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Registered Users</h2>
+                    <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Manage who has access to the portal</p>
+                  </div>
+                </div>
+                <button onClick={loadUsers} disabled={usersLoading} style={{ padding: '0.6rem 1.25rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 700, fontSize: '0.875rem', cursor: usersLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <RefreshCw size={14} />{usersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+
+              {/* Summary row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', marginBottom: '1.75rem' }}>
+                {[
+                  { label: 'Total Users', count: usersData.length, color: '#667eea', bg: '#ede9fe' },
+                  { label: 'Online Now', count: online, color: '#10b981', bg: '#d1fae5' },
+                  { label: 'Admins', count: usersData.filter(u => u.role === 'admin').length, color: '#f59e0b', bg: '#fef3c7' },
+                ].map(({ label, count, color, bg }) => (
+                  <div key={label} style={{ padding: '1rem', background: bg, borderRadius: '12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color }}>{count}</div>
+                    <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* User list */}
+              {usersLoading ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af' }}>Loading users…</div>
+              ) : usersData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af', background: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+                  No registered users found. Users will appear here after they log in for the first time.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {usersData.map(u => {
+                    const st = getStatus(u.lastSeen);
+                    const isSelf = u.username === user.username;
+                    const isAdmin = u.role === 'admin';
+                    return (
+                      <div key={u.username} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1.25rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', flexWrap: 'wrap' }}>
+                        {/* Avatar */}
+                        <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: isAdmin ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#667eea,#764ba2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'white', fontWeight: 700, fontSize: '1rem' }}>
+                          {(u.name || u.username).charAt(0).toUpperCase()}
+                        </div>
+
+                        {/* Name + email */}
+                        <div style={{ flex: 1, minWidth: '140px' }}>
+                          <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            {u.name || u.username}
+                            {isSelf && <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700 }}>YOU</span>}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.1rem' }}>{u.username}</div>
+                        </div>
+
+                        {/* Role badge */}
+                        <span style={{ padding: '0.25rem 0.7rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, background: isAdmin ? '#fef3c7' : '#ede9fe', color: isAdmin ? '#92400e' : '#5b21b6', flexShrink: 0 }}>
+                          {u.role === 'admin' ? 'ADMIN' : 'MEMBER'}
+                        </span>
+
+                        {/* Online status */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.75rem', background: st.bg, borderRadius: '20px', flexShrink: 0 }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
+                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: st.text, whiteSpace: 'nowrap' }}>{st.label}</span>
+                        </div>
+
+                        {/* Joined date */}
+                        <div style={{ fontSize: '0.75rem', color: '#9ca3af', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                          Joined {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                        </div>
+
+                        {/* Remove button */}
+                        <button
+                          onClick={() => removeUser(u.username, u.name)}
+                          disabled={isSelf || isAdmin}
+                          title={isSelf ? 'Cannot remove your own account' : isAdmin ? 'Admin accounts cannot be removed' : `Remove ${u.name}`}
+                          style={{ padding: '0.4rem 0.9rem', background: isSelf || isAdmin ? '#f3f4f6' : '#fee2e2', color: isSelf || isAdmin ? '#d1d5db' : '#ef4444', border: `1px solid ${isSelf || isAdmin ? '#e5e7eb' : '#fca5a5'}`, borderRadius: '8px', fontWeight: 700, fontSize: '0.78rem', cursor: isSelf || isAdmin ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+                          <Trash2 size={13} />Remove
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p style={{ marginTop: '1.25rem', fontSize: '0.78rem', color: '#9ca3af' }}>
+                Note: Admin accounts cannot be removed. Users who registered before this feature was added will appear after their next login.
+              </p>
             </div>
           );
         })()}
