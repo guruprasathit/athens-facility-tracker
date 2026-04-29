@@ -8,6 +8,30 @@ import { get, set } from './_storage.js';
 
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend.dev>';
 
+function pdfBacklogEmailHtml(taskCount, customMessage) {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:system-ui,sans-serif">
+  <div style="max-width:600px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:28px 32px">
+      <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Athens Community Facility Tracker</div>
+      <h1 style="margin:0;color:white;font-size:22px;font-weight:700">&#128196; Backlog Report</h1>
+    </div>
+    <div style="padding:28px 32px">
+      ${customMessage ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 18px;margin-bottom:24px;color:#1e40af;font-size:14px;line-height:1.6">${customMessage}</div>` : ''}
+      <p style="margin:0 0 16px;color:#374151;font-size:15px">Please find attached the backlog report for <strong>${taskCount} task${taskCount !== 1 ? 's' : ''}</strong> currently awaiting action.</p>
+      <p style="margin:0 0 20px;color:#6b7280;font-size:13px">Open the attached PDF to view full task details including descriptions, priorities, categories, due dates, and photos.</p>
+      <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update these tasks.</p>
+    </div>
+    <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
+      This notification was sent by an administrator of the Athens Community Facility Tracker.
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 function taskNotifyEmailHtml(task, cidRefs, customMessage) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
@@ -174,10 +198,44 @@ export default async function handler(req, res) {
 
   // ── Bulk backlog notify (POST) — one email per task per recipient ─────────────
   if (req.method === 'POST') {
-    const { emails, message, tasks: payloadTasks } = req.body || {};
+    const { emails, message, tasks: payloadTasks, pdfBase64, taskCount } = req.body || {};
     if (!Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'emails array is required' });
     }
+
+    // ── PDF attachment mode: send one email per recipient with the PDF attached ──
+    if (pdfBase64) {
+      const count = typeof taskCount === 'number' ? taskCount : 0;
+      const subject = `[Athens Tracker] Backlog Report — ${count} task${count !== 1 ? 's' : ''}`;
+      const html = pdfBacklogEmailHtml(count, message || '');
+      const attachment = {
+        filename: `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`,
+        content: pdfBase64,
+        content_type: 'application/pdf',
+      };
+      let sent = 0;
+      const results = [];
+      for (const email of emails) {
+        try {
+          const r = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: FROM, to: email, subject, html, attachments: [attachment] }),
+          });
+          if (r.ok) {
+            sent++;
+            results.push({ email, status: 'sent' });
+          } else {
+            const b = await r.json().catch(() => ({}));
+            results.push({ email, status: 'failed', error: b.message || r.statusText });
+          }
+        } catch (err) {
+          results.push({ email, status: 'error', error: err.message });
+        }
+      }
+      return res.status(200).json({ sent, total: emails.length, taskCount: count, recipientCount: emails.length, results });
+    }
+
     if (!Array.isArray(payloadTasks) || payloadTasks.length === 0) {
       return res.status(400).json({ error: 'tasks array is required' });
     }

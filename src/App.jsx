@@ -16,6 +16,10 @@ const App = () => {
   const [notifyMessage, setNotifyMessage] = useState('');
   const [notifySending, setNotifySending] = useState(false);
   const [notifyResult, setNotifyResult] = useState(null);
+  const [pdfMailEmails, setPdfMailEmails] = useState('');
+  const [pdfMailMessage, setPdfMailMessage] = useState('');
+  const [pdfMailSending, setPdfMailSending] = useState(false);
+  const [pdfMailResult, setPdfMailResult] = useState(null);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -814,6 +818,55 @@ const App = () => {
     setNotifySending(false);
   };
 
+  const downloadBacklogPdf = async () => {
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('No backlog tasks to export.'); return; }
+    setPdfGenerating(true);
+    try {
+      const b64 = await makeBacklogPdfBase64(backlogTasks);
+      const link = document.createElement('a');
+      link.href = `data:application/pdf;base64,${b64}`;
+      link.download = `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      const updatedLogs = log('EXPORTED', '', 'Backlog PDF downloaded');
+      saveLogs(updatedLogs);
+    } catch (e) { alert('PDF generation failed: ' + e.message); }
+    setPdfGenerating(false);
+  };
+
+  const sendPdfMail = async () => {
+    const emailList = pdfMailEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('There are no backlog tasks to include.'); return; }
+    setPdfMailSending(true);
+    setPdfMailResult(null);
+    try {
+      const pdfBase64 = await makeBacklogPdfBase64(backlogTasks);
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: pdfMailMessage, pdfBase64, taskCount: backlogTasks.length }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPdfMailResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Backlog PDF sent to ${emailList.length} recipient(s) — ${backlogTasks.length} task(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setPdfMailResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setPdfMailResult({ success: false, error: err.message });
+    }
+    setPdfMailSending(false);
+  };
+
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
 
   const categoryMeta = [
@@ -1090,6 +1143,11 @@ const App = () => {
               <Mail size={16} />Notify Backlog
             </button>
           )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('pdfmail'); setPdfMailResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'pdfmail' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'pdfmail' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'pdfmail' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <FileText size={16} />Generate PDF &amp; Mail
+            </button>
+          )}
         </div>
 
         {/* ── Admin Report Tab ── */}
@@ -1244,6 +1302,120 @@ const App = () => {
                 style={{ padding: '0.9rem 2.5rem', background: notifySending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: notifySending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
                 <Send size={18} />
                 {notifySending ? 'Sending…' : `Send to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Generate PDF & Mail Tab ── */}
+        {activeTab === 'pdfmail' && (() => {
+          const backlogTasks = tasks.filter(t => t.status === 'backlog');
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Generate PDF &amp; Mail</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Generate a backlog PDF report and send it to multiple recipients</p>
+                </div>
+              </div>
+
+              {/* Backlog task list */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Circle size={14} style={{ color: '#667eea' }} />
+                  Backlog Tasks ({backlogTasks.length})
+                </div>
+                {backlogTasks.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center' }}>
+                    No tasks currently in the backlog.
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {backlogTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      const lm = LABELS.find(l => l.key === t.label);
+                      return (
+                        <div key={t.id} style={{ padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1, minWidth: '120px' }}>{t.title}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                            {lm && <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: lm.color + '22', color: lm.color, flexShrink: 0 }}>{lm.label}</span>}
+                            <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                          </div>
+                          {t.description && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.3rem', paddingLeft: '0.1rem' }}>{t.description}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Download PDF button */}
+              <div style={{ marginBottom: '1.75rem', padding: '1.25rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px' }}>
+                <div style={{ fontWeight: 700, color: '#374151', marginBottom: '0.4rem', fontSize: '0.9rem' }}>Step 1 — Preview &amp; Download PDF</div>
+                <div style={{ fontSize: '0.825rem', color: '#6b7280', marginBottom: '0.9rem' }}>Generate the backlog PDF and download it locally to review before sending.</div>
+                <button
+                  onClick={downloadBacklogPdf}
+                  disabled={pdfGenerating || backlogTasks.length === 0}
+                  style={{ padding: '0.7rem 1.75rem', background: pdfGenerating ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.9rem', cursor: pdfGenerating || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Download size={16} />
+                  {pdfGenerating ? 'Generating…' : `Download PDF (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+                </button>
+              </div>
+
+              {/* Step 2: email */}
+              <div style={{ fontWeight: 700, color: '#374151', marginBottom: '1rem', fontSize: '0.9rem' }}>Step 2 — Send PDF to Recipients</div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={pdfMailEmails}
+                  onChange={e => setPdfMailEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included in the email body</span>
+                </label>
+                <textarea
+                  value={pdfMailMessage}
+                  onChange={e => setPdfMailMessage(e.target.value)}
+                  placeholder="Please find the attached backlog report for your review…"
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {pdfMailResult && (
+                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: pdfMailResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${pdfMailResult.success ? '#6ee7b7' : '#fca5a5'}`, color: pdfMailResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {pdfMailResult.success
+                    ? `PDF sent to ${pdfMailResult.sent} of ${pdfMailResult.total} recipient${pdfMailResult.total !== 1 ? 's' : ''} — ${pdfMailResult.taskCount} backlog task${pdfMailResult.taskCount !== 1 ? 's' : ''} included.`
+                    : `Failed to send: ${pdfMailResult.error}`}
+                </div>
+              )}
+
+              <button
+                onClick={sendPdfMail}
+                disabled={pdfMailSending || backlogTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: pdfMailSending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: pdfMailSending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+                <Send size={18} />
+                {pdfMailSending ? 'Generating &amp; Sending…' : `Send PDF to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
               </button>
             </div>
           );
