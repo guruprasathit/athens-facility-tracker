@@ -1480,7 +1480,7 @@ const App = () => {
           const getStatus = (lastSeen) => {
             if (!lastSeen) return { label: 'Never logged in', dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
             const mins = (now - new Date(lastSeen)) / 60000;
-            if (mins < 30) return { label: 'Online now', dot: '#10b981', bg: '#d1fae5', text: '#065f46' };
+            if (mins < 10) return { label: 'Online now', dot: '#10b981', bg: '#d1fae5', text: '#065f46' };
             if (mins < 60 * 24) return { label: 'Active today', dot: '#f59e0b', bg: '#fef3c7', text: '#92400e' };
             return { label: `Last seen ${new Date(lastSeen).toLocaleDateString()}`, dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
           };
