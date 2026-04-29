@@ -1403,10 +1403,30 @@ const App = () => {
               </div>
 
               {pdfMailResult && (
-                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: pdfMailResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${pdfMailResult.success ? '#6ee7b7' : '#fca5a5'}`, color: pdfMailResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
-                  {pdfMailResult.success
-                    ? `PDF sent to ${pdfMailResult.sent} of ${pdfMailResult.total} recipient${pdfMailResult.total !== 1 ? 's' : ''} — ${pdfMailResult.taskCount} backlog task${pdfMailResult.taskCount !== 1 ? 's' : ''} included.`
-                    : `Failed to send: ${pdfMailResult.error}`}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  {/* Summary banner */}
+                  <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '0.75rem', background: pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#d1fae5' : '#fef3c7') : '#fee2e2', border: `1px solid ${pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#6ee7b7' : '#fcd34d') : '#fca5a5'}`, color: pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#065f46' : '#92400e') : '#991b1b', fontSize: '0.875rem', fontWeight: 700 }}>
+                    {pdfMailResult.success
+                      ? `${pdfMailResult.sent} of ${pdfMailResult.total} email${pdfMailResult.total !== 1 ? 's' : ''} delivered — ${pdfMailResult.taskCount} backlog task${pdfMailResult.taskCount !== 1 ? 's' : ''} included.`
+                      : `Failed to send: ${pdfMailResult.error}`}
+                  </div>
+                  {/* Per-recipient delivery breakdown */}
+                  {pdfMailResult.success && Array.isArray(pdfMailResult.results) && pdfMailResult.results.length > 0 && (
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '0.6rem 1rem', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.78rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Delivery Report
+                      </div>
+                      {pdfMailResult.results.map((r, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', borderBottom: i < pdfMailResult.results.length - 1 ? '1px solid #f3f4f6' : 'none', background: 'white' }}>
+                          <span style={{ fontSize: '1rem', lineHeight: 1 }}>{r.status === 'sent' ? '✅' : '❌'}</span>
+                          <span style={{ flex: 1, fontSize: '0.875rem', color: '#111827', wordBreak: 'break-all' }}>{r.email}</span>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: '20px', flexShrink: 0, background: r.status === 'sent' ? '#d1fae5' : '#fee2e2', color: r.status === 'sent' ? '#065f46' : '#991b1b' }}>
+                            {r.status === 'sent' ? 'Delivered' : r.error || 'Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
