@@ -30,6 +30,7 @@ const App = () => {
   const [shareTokensLoading, setShareTokensLoading] = useState(false);
   const [viewerChecking, setViewerChecking] = useState(() => !!(new URLSearchParams(window.location.search).get('share')));
   const [viewerTokenError, setViewerTokenError] = useState('');
+  const [viewerExited, setViewerExited] = useState(false);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -973,6 +974,17 @@ const App = () => {
   const maxCatCount = Math.max(...catData.map(d => d.count), 1);
   const isViewer = user?.role === 'viewer';
 
+  if (viewerExited) return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif' }}>
+      <div style={{ textAlign: 'center', maxWidth: 360, padding: '2rem' }}>
+        <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg,#d4af37,#f0c93a)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: 28 }}>🏛️</div>
+        <div style={{ fontFamily: 'Playfair Display, serif', fontSize: '1.5rem', fontWeight: 700, color: '#f0c93a', marginBottom: '0.5rem' }}>Athens Community</div>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '1.5rem' }}>Viewer Session Ended</div>
+        <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.95rem', lineHeight: 1.7 }}>You have exited the shared view. Close this tab or contact an admin for a new link.</div>
+      </div>
+    </div>
+  );
+
   if (viewerChecking) return (
     <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ width: 40, height: 40, border: '3px solid rgba(212,175,55,0.3)', borderTopColor: '#f0c93a', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
@@ -1212,7 +1224,7 @@ const App = () => {
               {!isViewer && <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>}
               {!isViewer && <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>}
               {user.role === 'admin' && <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>}
-              <button onClick={isViewer ? () => { window.location.href = window.location.pathname; } : logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>{isViewer ? 'Exit' : 'Logout'}</button>
+              <button onClick={isViewer ? () => { setViewerExited(true); setUser(null); window.history.replaceState({}, '', window.location.pathname); } : logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>{isViewer ? 'Exit' : 'Logout'}</button>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', paddingTop: '1rem', borderTop: '2px solid #f3f4f6' }}>
