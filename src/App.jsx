@@ -26,6 +26,8 @@ const App = () => {
   const [shareLink, setShareLink] = useState('');
   const [shareLinkLoading, setShareLinkLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareTokens, setShareTokens] = useState([]);
+  const [shareTokensLoading, setShareTokensLoading] = useState(false);
   const [viewerChecking, setViewerChecking] = useState(() => !!(new URLSearchParams(window.location.search).get('share')));
   const [viewerTokenError, setViewerTokenError] = useState('');
 
@@ -327,6 +329,21 @@ const App = () => {
     if (!token) return;
     await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token }) });
     setShareLink('');
+  };
+
+  const loadShareTokens = async () => {
+    setShareTokensLoading(true);
+    try {
+      const res = await fetch('/api/share?action=list');
+      const data = await res.json();
+      setShareTokens(data.tokens || []);
+    } catch { setShareTokens([]); }
+    setShareTokensLoading(false);
+  };
+
+  const revokeShareToken = async (token) => {
+    await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token }) });
+    setShareTokens(prev => prev.filter(t => t.token !== token));
   };
 
   const BLANK_IMGS = { _images: [null,null,null], _imageNames: ['','',''], _removeImages: [false,false,false] };
@@ -1211,7 +1228,7 @@ const App = () => {
             <CheckCircle2 size={16} />Dashboard
           </button>
           {user.role === 'admin' && (
-            <button onClick={() => setActiveTab('admin')} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'admin' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'admin' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'admin' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button onClick={() => { setActiveTab('admin'); loadShareTokens(); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'admin' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'admin' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'admin' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Shield size={16} />Admin Report
             </button>
           )}
@@ -1278,6 +1295,60 @@ const App = () => {
               {pdfGenerating ? 'Generating PDF…' : `Download PDF Report (${tasks.length} task${tasks.length !== 1 ? 's' : ''})`}
             </button>
             {tasks.length === 0 && <p style={{ marginTop: '0.75rem', color: '#9ca3af', fontSize: '0.8rem' }}>No tasks to export.</p>}
+
+            {/* ── Share Links Management ── */}
+            <div style={{ marginTop: '2.5rem', borderTop: '2px solid #f3f4f6', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#10b981,#059669)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Share2 size={18} color="white" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#111827' }}>Active Share Links</h3>
+                    <p style={{ margin: 0, color: '#6b7280', fontSize: '0.8rem' }}>Read-only viewer links currently in use</p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={loadShareTokens} style={{ padding: '0.55rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <RefreshCw size={14} />Refresh
+                  </button>
+                  <button onClick={() => { setShareLink(''); setShareModal(true); }} style={{ padding: '0.55rem 1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Share2 size={14} />New Link
+                  </button>
+                </div>
+              </div>
+
+              {shareTokensLoading ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>Loading…</div>
+              ) : shareTokens.length === 0 ? (
+                <div style={{ padding: '1.5rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>
+                  No active share links. Use the <strong>Share</strong> button in the header or <strong>New Link</strong> above to create one.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {shareTokens.map(({ token, createdAt }) => {
+                    const url = `${window.location.origin}${window.location.pathname}?share=${token}`;
+                    return (
+                      <div key={token} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#6b7280', marginBottom: '0.2rem' }}>Token: {token.slice(0, 12)}…</div>
+                          <div style={{ fontSize: '0.8rem', color: '#374151', wordBreak: 'break-all' }}>{url}</div>
+                          <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem' }}>Created: {new Date(createdAt).toLocaleString()}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                          <button onClick={() => navigator.clipboard.writeText(url)} style={{ padding: '0.4rem 0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Copy size={12} />Copy
+                          </button>
+                          <button onClick={() => { if (window.confirm('Revoke this share link? Anyone using it will lose access immediately.')) revokeShareToken(token); }} style={{ padding: '0.4rem 0.75rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                            Revoke
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

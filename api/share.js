@@ -8,7 +8,13 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method === 'GET') {
-    const { token } = req.query;
+    const { token, action } = req.query;
+
+    if (action === 'list') {
+      const list = await get('share:list') || [];
+      return res.json({ tokens: list });
+    }
+
     if (!token) return res.status(400).json({ error: 'token required' });
 
     const data = await get(`share:${token}`);
