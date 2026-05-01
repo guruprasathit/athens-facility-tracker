@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield, Share2, Copy, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 
@@ -22,6 +22,12 @@ const App = () => {
   const [pdfMailResult, setPdfMailResult] = useState(null);
   const [usersData, setUsersData] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [shareModal, setShareModal] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [shareLinkLoading, setShareLinkLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [viewerChecking, setViewerChecking] = useState(() => !!(new URLSearchParams(window.location.search).get('share')));
+  const [viewerTokenError, setViewerTokenError] = useState('');
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -127,6 +133,19 @@ const App = () => {
       return () => clearInterval(interval);
     }
   }, [user]);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('share');
+    if (!token) return;
+    fetch(`/api/share?token=${encodeURIComponent(token)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.valid) setUser({ name: 'Viewer', role: 'viewer', username: 'viewer' });
+        else setViewerTokenError(data.error || 'This link is invalid or has expired.');
+      })
+      .catch(() => setViewerTokenError('Could not verify this link.'))
+      .finally(() => setViewerChecking(false));
+  }, []);
 
   const loadData = async (isInitial = false) => {
     try {
@@ -290,6 +309,24 @@ const App = () => {
       setIsRegistering(false);
       setIsForgotPassword(false);
     }, 500);
+  };
+
+  const generateShareLink = async () => {
+    setShareLinkLoading(true);
+    try {
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (data.token) setShareLink(`${window.location.origin}${window.location.pathname}?share=${data.token}`);
+    } catch { alert('Failed to generate share link.'); }
+    setShareLinkLoading(false);
+  };
+
+  const revokeShareLink = async () => {
+    if (!shareLink) return;
+    const token = new URL(shareLink).searchParams.get('share');
+    if (!token) return;
+    await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token }) });
+    setShareLink('');
   };
 
   const BLANK_IMGS = { _images: [null,null,null], _imageNames: ['','',''], _removeImages: [false,false,false] };
@@ -917,6 +954,15 @@ const App = () => {
     .map(({ key, label, color }) => ({ label, color, count: tasks.filter(t => t.category === key).length }))
     .filter(d => d.count > 0);
   const maxCatCount = Math.max(...catData.map(d => d.count), 1);
+  const isViewer = user?.role === 'viewer';
+
+  if (viewerChecking) return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ width: 40, height: 40, border: '3px solid rgba(212,175,55,0.3)', borderTopColor: '#f0c93a', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+      <div style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'sans-serif', fontSize: '0.95rem', letterSpacing: '1px' }}>Verifying share link…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
   if (!user) return (
@@ -976,6 +1022,7 @@ const App = () => {
             <span /><p>{isForgotPassword ? 'Reset Password' : isRegistering ? 'Register' : 'Sign In'}</p><span />
           </div>
 
+          {viewerTokenError && <div className="error-box">🔗 {viewerTokenError}</div>}
           {loginError && <div className="error-box">⚠ {loginError}</div>}
           {loginSuccess && <div className="success-box">✓ {loginSuccess}</div>}
 
@@ -1136,17 +1183,19 @@ const App = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Tracker Facility Management</p></div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <div style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ padding: '0.75rem 1rem', background: isViewer ? '#374151' : '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <User size={16} />{user.name}
                 {user.role === 'admin' && <span style={{ background: '#fbbf24', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.25rem' }}>ADMIN</span>}
+                {isViewer && <span style={{ background: '#10b981', color: 'white', fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.25rem' }}>VIEW ONLY</span>}
               </div>
               <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
+              {user?.role === 'admin' && <button onClick={() => { setShareLink(''); setShareModal(true); }} style={{ padding: '0.75rem 1rem', background: 'white', color: '#10b981', border: '2px solid #10b981', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Share2 size={16} />Share</button>}
               {user?.role === 'admin' && <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>}
               <button onClick={() => loadData(false)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
               <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>
-              <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>
+              {!isViewer && <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>}
               {user.role === 'admin' && <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>}
-              <button onClick={logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Logout</button>
+              <button onClick={isViewer ? () => { window.location.href = window.location.pathname; } : logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>{isViewer ? 'Exit' : 'Logout'}</button>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', paddingTop: '1rem', borderTop: '2px solid #f3f4f6' }}>
@@ -1654,8 +1703,8 @@ const App = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                           <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>
-                            {task.assignedEmail && task.status !== 'done' && <button onClick={() => sendAlert(task)} title={`Send alert to ${task.assignedEmail}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
+                            {!isViewer && <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>}
+                            {task.assignedEmail && task.status !== 'done' && !isViewer && <button onClick={() => sendAlert(task)} title={`Send alert to ${task.assignedEmail}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
                             {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
@@ -1712,7 +1761,7 @@ const App = () => {
                               <div style={{ color: '#4b5563' }}>{c.text}</div>
                             </div>
                           ))}
-                          {(task.comments || []).length < 5 && (
+                          {(task.comments || []).length < 5 && !isViewer && (
                             <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
                               <input
                                 value={commentInputs[task.id] || ''}
@@ -1725,24 +1774,64 @@ const App = () => {
                             </div>
                           )}
                         </div>
-                        {task.status !== 'done' && (
+                        {!isViewer && task.status !== 'done' && (
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             {task.status === 'backlog' && <button onClick={() => move(task.id, 'in-progress')} style={{ flex: 1, padding: '0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Start</button>}
                             {task.status === 'in-progress' && <><button onClick={() => move(task.id, 'backlog')} style={{ flex: 1, padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Back</button><button onClick={() => move(task.id, 'done')} style={{ flex: 1, padding: '0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Done</button></>}
                           </div>
                         )}
-                        {task.status === 'done' && <button onClick={() => move(task.id, 'in-progress')} style={{ width: '100%', padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Reopen</button>}
+                        {!isViewer && task.status === 'done' && <button onClick={() => move(task.id, 'in-progress')} style={{ width: '100%', padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Reopen</button>}
                       </div>
                     );
                   })}
                 </div>
-                <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>
+                {!isViewer && <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>}
               </div>
             );
           })}
         </div>
         </>}
       </div>
+
+      {shareModal && (
+        <div onClick={() => setShareModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '480px', padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Share2 size={20} color="#10b981" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Share Dashboard</h3>
+              </div>
+              <button onClick={() => setShareModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={20} /></button>
+            </div>
+            <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+              Generate a read-only link that lets anyone view the dashboard without logging in. They cannot add, edit, or delete tasks.
+            </p>
+            {!shareLink ? (
+              <button onClick={generateShareLink} disabled={shareLinkLoading} style={{ width: '100%', padding: '0.85rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.95rem', cursor: shareLinkLoading ? 'not-allowed' : 'pointer', opacity: shareLinkLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                <Share2 size={16} />{shareLinkLoading ? 'Generating…' : 'Generate Share Link'}
+              </button>
+            ) : (
+              <>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ flex: 1, fontSize: '0.8rem', color: '#374151', wordBreak: 'break-all', fontFamily: 'monospace' }}>{shareLink}</div>
+                  <button onClick={() => { navigator.clipboard.writeText(shareLink); setShareCopied(true); setTimeout(() => setShareCopied(false), 2000); }} style={{ background: shareCopied ? '#10b981' : '#667eea', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
+                    {shareCopied ? <><Check size={13} />Copied!</> : <><Copy size={13} />Copy</>}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={generateShareLink} disabled={shareLinkLoading} style={{ flex: 1, padding: '0.65rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                    {shareLinkLoading ? 'Generating…' : 'New Link'}
+                  </button>
+                  <button onClick={revokeShareLink} style={{ flex: 1, padding: '0.65rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                    Revoke Link
+                  </button>
+                </div>
+                <p style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: '0.75rem', textAlign: 'center' }}>Revoking invalidates the current link immediately.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, overflowY: 'auto', padding: '1rem' }}>
