@@ -1614,9 +1614,30 @@ const App = () => {
             const mins = (now - new Date(lastSeen)) / 60000;
             if (mins < 10) return { label: 'Online now', dot: '#10b981', bg: '#d1fae5', text: '#065f46' };
             if (mins < 60 * 24) return { label: 'Active today', dot: '#f59e0b', bg: '#fef3c7', text: '#92400e' };
-            return { label: `Last seen ${new Date(lastSeen).toLocaleDateString()}`, dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
+            return { label: 'Inactive', dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
           };
-          const online = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 30).length;
+          const formatLastSeen = (lastSeen) => {
+            if (!lastSeen) return 'Never';
+            const d = new Date(lastSeen);
+            const mins = (now - d) / 60000;
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${Math.floor(mins)} min${Math.floor(mins) > 1 ? 's' : ''} ago`;
+            const hrs = mins / 60;
+            if (hrs < 24) return `${Math.floor(hrs)} hr${Math.floor(hrs) > 1 ? 's' : ''} ago`;
+            const days = hrs / 24;
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            if (days < 2) return `Yesterday at ${timeStr}`;
+            if (days < 7) return `${Math.floor(days)} days ago at ${timeStr}`;
+            return `${d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} at ${timeStr}`;
+          };
+          const online = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 10).length;
+          const activeToday = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 60 * 24).length;
+          const sorted = [...usersData].sort((a, b) => {
+            if (!a.lastSeen && !b.lastSeen) return 0;
+            if (!a.lastSeen) return 1;
+            if (!b.lastSeen) return -1;
+            return new Date(b.lastSeen) - new Date(a.lastSeen);
+          });
           return (
             <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
               {/* Header */}
@@ -1636,11 +1657,12 @@ const App = () => {
               </div>
 
               {/* Summary row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', marginBottom: '1.75rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.75rem' }}>
                 {[
                   { label: 'Total Users', count: usersData.length, color: '#667eea', bg: '#ede9fe' },
                   { label: 'Online Now', count: online, color: '#10b981', bg: '#d1fae5' },
-                  { label: 'Admins', count: usersData.filter(u => u.role === 'admin').length, color: '#f59e0b', bg: '#fef3c7' },
+                  { label: 'Active Today', count: activeToday, color: '#f59e0b', bg: '#fef3c7' },
+                  { label: 'Admins', count: usersData.filter(u => u.role === 'admin').length, color: '#7c3aed', bg: '#f5f3ff' },
                 ].map(({ label, count, color, bg }) => (
                   <div key={label} style={{ padding: '1rem', background: bg, borderRadius: '12px', textAlign: 'center' }}>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color }}>{count}</div>
@@ -1658,24 +1680,28 @@ const App = () => {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {usersData.map(u => {
+                  {sorted.map((u, idx) => {
                     const st = getStatus(u.lastSeen);
                     const isSelf = u.username === user.username;
                     const isAdmin = u.role === 'admin';
                     return (
                       <div key={u.username} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1.25rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', flexWrap: 'wrap' }}>
+                        {/* Rank */}
+                        <div style={{ width: '22px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#d1d5db', flexShrink: 0 }}>#{idx + 1}</div>
+
                         {/* Avatar */}
                         <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: isAdmin ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#667eea,#764ba2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'white', fontWeight: 700, fontSize: '1rem' }}>
                           {(u.name || u.username).charAt(0).toUpperCase()}
                         </div>
 
-                        {/* Name + email */}
+                        {/* Name + email + joined */}
                         <div style={{ flex: 1, minWidth: '140px' }}>
                           <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             {u.name || u.username}
                             {isSelf && <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700 }}>YOU</span>}
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.1rem' }}>{u.username}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.15rem' }}>Joined {u.createdAt ? new Date(u.createdAt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
                         </div>
 
                         {/* Role badge */}
@@ -1683,15 +1709,15 @@ const App = () => {
                           {u.role === 'admin' ? 'ADMIN' : 'MEMBER'}
                         </span>
 
-                        {/* Online status */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.75rem', background: st.bg, borderRadius: '20px', flexShrink: 0 }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
-                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: st.text, whiteSpace: 'nowrap' }}>{st.label}</span>
-                        </div>
-
-                        {/* Joined date */}
-                        <div style={{ fontSize: '0.75rem', color: '#9ca3af', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                          Joined {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                        {/* Last seen — detailed */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', flexShrink: 0, minWidth: '140px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.75rem', background: st.bg, borderRadius: '20px' }}>
+                            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: st.text, whiteSpace: 'nowrap' }}>{st.label}</span>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#9ca3af', textAlign: 'right', paddingRight: '0.2rem' }}>
+                            {formatLastSeen(u.lastSeen)}
+                          </div>
                         </div>
 
                         {/* Remove button */}
