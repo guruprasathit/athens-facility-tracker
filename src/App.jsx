@@ -8,8 +8,11 @@ const App = () => {
   const [logs, setLogs] = useState([]);
   const [modal, setModal] = useState(false);
   const [logModal, setLogModal] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [labelFilter, setLabelFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState(() => new URLSearchParams(window.location.search).get('category') || 'all');
+  const [labelFilter, setLabelFilter] = useState(() => new URLSearchParams(window.location.search).get('label') || 'all');
+  const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
+  const [assignedFilter, setAssignedFilter] = useState(() => new URLSearchParams(window.location.search).get('assigned') || 'all');
+  const [filterLinkCopied, setFilterLinkCopied] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [notifyEmails, setNotifyEmails] = useState('');
@@ -138,12 +141,31 @@ const App = () => {
   }, [user]);
 
   useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (searchQuery) params.set('q', searchQuery); else params.delete('q');
+    if (categoryFilter !== 'all') params.set('category', categoryFilter); else params.delete('category');
+    if (labelFilter !== 'all') params.set('label', labelFilter); else params.delete('label');
+    if (assignedFilter !== 'all') params.set('assigned', assignedFilter); else params.delete('assigned');
+    const qs = params.toString();
+    const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', newUrl);
+  }, [searchQuery, categoryFilter, labelFilter, assignedFilter, user]);
+
+  useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('share');
     if (!token) return;
     fetch(`/api/share?token=${encodeURIComponent(token)}`)
       .then(r => r.json())
       .then(data => {
-        if (data.valid) setUser({ name: 'Viewer', role: 'viewer', username: 'viewer' });
+        if (data.valid) {
+          setUser({ name: 'Viewer', role: 'viewer', username: 'viewer' });
+          const sp = new URLSearchParams(window.location.search);
+          if (sp.get('q')) setSearchQuery(sp.get('q'));
+          if (sp.get('category')) setCategoryFilter(sp.get('category'));
+          if (sp.get('label')) setLabelFilter(sp.get('label'));
+          if (sp.get('assigned')) setAssignedFilter(sp.get('assigned'));
+        }
         else setViewerTokenError(data.error || 'This link is invalid or has expired.');
       })
       .catch(() => setViewerTokenError('Could not verify this link.'))
@@ -319,7 +341,15 @@ const App = () => {
     try {
       const res = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       const data = await res.json();
-      if (data.token) setShareLink(`${window.location.origin}${window.location.pathname}?share=${data.token}`);
+      if (data.token) {
+        const filterParams = new URLSearchParams();
+        filterParams.set('share', data.token);
+        if (searchQuery) filterParams.set('q', searchQuery);
+        if (categoryFilter !== 'all') filterParams.set('category', categoryFilter);
+        if (labelFilter !== 'all') filterParams.set('label', labelFilter);
+        if (assignedFilter !== 'all') filterParams.set('assigned', assignedFilter);
+        setShareLink(`${window.location.origin}${window.location.pathname}?${filterParams.toString()}`);
+      }
     } catch { alert('Failed to generate share link.'); }
     setShareLinkLoading(false);
   };
@@ -1767,6 +1797,25 @@ const App = () => {
           </div>
         )}
 
+        {/* ── Search Bar ── */}
+        <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by title, description, or Athens ID…"
+            style={{ width: '100%', padding: '0.55rem 2.4rem 0.55rem 2.4rem', borderRadius: '10px', border: '2px solid #e5e7eb', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
+            onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+            onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+          />
+          <svg style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '0.1rem', display: 'flex', alignItems: 'center' }}>
+              <X size={15} />
+            </button>
+          )}
+        </div>
+
         {/* ── Category Filter Bar ── */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
           <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>CATEGORY</span>
@@ -1777,13 +1826,55 @@ const App = () => {
         </div>
 
         {/* ── Label Filter Bar ── */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
           <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>LABEL</span>
           <button onClick={() => setLabelFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === 'all' ? '#374151' : '#e5e7eb', background: labelFilter === 'all' ? '#374151' : 'white', color: labelFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
           {LABELS.filter(({ key }) => tasks.some(t => t.label === key)).map(({ key, label, color }) => (
             <button key={key} onClick={() => setLabelFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === key ? color : '#e5e7eb', background: labelFilter === key ? color : 'white', color: labelFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
           ))}
         </div>
+
+        {/* ── Assigned-to Filter Bar ── */}
+        {(() => {
+          const uniqueUsers = [];
+          const seen = new Set();
+          tasks.forEach(t => {
+            const key = t.createdBy;
+            if (key && !seen.has(key)) { seen.add(key); uniqueUsers.push({ key, name: t.createdByName || t.createdBy }); }
+          });
+          if (!uniqueUsers.length) return null;
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>CREATED BY</span>
+              <button onClick={() => setAssignedFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: assignedFilter === 'all' ? '#10b981' : '#e5e7eb', background: assignedFilter === 'all' ? '#10b981' : 'white', color: assignedFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+              {uniqueUsers.map(({ key, name }) => (
+                <button key={key} onClick={() => setAssignedFilter(f => f === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: assignedFilter === key ? '#10b981' : '#e5e7eb', background: assignedFilter === key ? '#10b981' : 'white', color: assignedFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{name}</button>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* ── Copy Filtered Link ── */}
+        {(searchQuery || categoryFilter !== 'all' || labelFilter !== 'all' || assignedFilter !== 'all') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem', padding: '0.5rem 0.85rem', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+            <span style={{ fontSize: '0.8rem', color: '#3b82f6', flex: 1 }}>
+              Filters active — copy a link to share this exact view
+            </span>
+            <button
+              onClick={() => { navigator.clipboard.writeText(window.location.href); setFilterLinkCopied(true); setTimeout(() => setFilterLinkCopied(false), 2000); }}
+              style={{ padding: '0.3rem 0.75rem', background: filterLinkCopied ? '#10b981' : '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap', transition: 'background 0.2s' }}
+            >
+              {filterLinkCopied ? <><Check size={12} />Copied!</> : <><Copy size={12} />Copy link</>}
+            </button>
+            <button
+              onClick={() => { setSearchQuery(''); setCategoryFilter('all'); setLabelFilter('all'); setAssignedFilter('all'); }}
+              style={{ padding: '0.3rem 0.6rem', background: 'none', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+              title="Clear all filters"
+            >
+              <X size={12} />Clear
+            </button>
+          </div>
+        )}
 
         {/* ── Kanban Board ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
@@ -1793,10 +1884,10 @@ const App = () => {
               <div key={col.id} style={{ background: 'white', borderRadius: '16px', padding: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '2px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Icon size={24} style={{ color: '#667eea' }} /><h3 style={{ margin: 0 }}>{col.t}</h3></div>
-                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter)).length}</div>
+                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter) && (assignedFilter === 'all' || t.createdBy === assignedFilter) && (!searchQuery || [t.title, t.description, t.athensId].some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))).length}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '200px', marginBottom: '1rem' }}>
-                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter)).map(task => {
+                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter) && (assignedFilter === 'all' || t.createdBy === assignedFilter) && (!searchQuery || [t.title, t.description, t.athensId].some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))).map(task => {
                     const today = new Date(); today.setHours(0, 0, 0, 0);
                     const dueDate = new Date(task.dueDate); dueDate.setHours(0, 0, 0, 0);
                     const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
