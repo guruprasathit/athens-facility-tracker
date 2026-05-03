@@ -12,7 +12,6 @@ const App = () => {
   const [labelFilter, setLabelFilter] = useState(() => new URLSearchParams(window.location.search).get('label') || 'all');
   const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
   const [assignedFilter, setAssignedFilter] = useState(() => new URLSearchParams(window.location.search).get('assigned') || 'all');
-  const [filterLinkCopied, setFilterLinkCopied] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [notifyEmails, setNotifyEmails] = useState('');
@@ -1856,27 +1855,6 @@ const App = () => {
           );
         })()}
 
-        {/* ── Copy Filtered Link ── */}
-        {(searchQuery || categoryFilter !== 'all' || labelFilter !== 'all' || assignedFilter !== 'all') && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem', padding: '0.5rem 0.85rem', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-            <span style={{ fontSize: '0.8rem', color: '#3b82f6', flex: 1 }}>
-              Filters active — copy a link to share this exact view
-            </span>
-            <button
-              onClick={() => { navigator.clipboard.writeText(window.location.href); setFilterLinkCopied(true); setTimeout(() => setFilterLinkCopied(false), 2000); }}
-              style={{ padding: '0.3rem 0.75rem', background: filterLinkCopied ? '#10b981' : '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap', transition: 'background 0.2s' }}
-            >
-              {filterLinkCopied ? <><Check size={12} />Copied!</> : <><Copy size={12} />Copy link</>}
-            </button>
-            <button
-              onClick={() => { setSearchQuery(''); setCategoryFilter('all'); setLabelFilter('all'); setAssignedFilter('all'); }}
-              style={{ padding: '0.3rem 0.6rem', background: 'none', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-              title="Clear all filters"
-            >
-              <X size={12} />Clear
-            </button>
-          </div>
-        )}
 
         {/* ── Kanban Board ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
