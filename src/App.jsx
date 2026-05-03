@@ -61,12 +61,14 @@ const App = () => {
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmail: '' });
   const [lightbox, setLightbox] = useState(null);
-  const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 3-slot array
+  const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
   const fileRef0 = useRef(null);
   const fileRef1 = useRef(null);
   const fileRef2 = useRef(null);
-  const fileRefs = [fileRef0, fileRef1, fileRef2];
+  const fileRef3 = useRef(null);
+  const fileRef4 = useRef(null);
+  const fileRefs = [fileRef0, fileRef1, fileRef2, fileRef3, fileRef4];
 
   const API_URL = '/api';
 
@@ -101,9 +103,9 @@ const App = () => {
     try {
       const { dataUrl, name } = await compressImage(file);
       setForm(f => {
-        const imgs  = [...(f._images  || [null,null,null])];
-        const names = [...(f._imageNames || ['','',''])];
-        const rems  = [...(f._removeImages || [false,false,false])];
+        const imgs  = [...(f._images  || [null,null,null,null,null])];
+        const names = [...(f._imageNames || ['','','','',''])];
+        const rems  = [...(f._removeImages || [false,false,false,false,false])];
         imgs[slot] = dataUrl; names[slot] = name; rems[slot] = false;
         return { ...f, _images: imgs, _imageNames: names, _removeImages: rems };
       });
@@ -377,7 +379,7 @@ const App = () => {
     setShareTokens(prev => prev.filter(t => t.token !== token));
   };
 
-  const BLANK_IMGS = { _images: [null,null,null], _imageNames: ['','',''], _removeImages: [false,false,false] };
+  const BLANK_IMGS = { _images: [null,null,null,null,null], _imageNames: ['','','','',''], _removeImages: [false,false,false,false,false] };
 
   const open = (s = 'backlog', t = null) => {
     if (t) {
@@ -395,15 +397,15 @@ const App = () => {
     if (!form.title || !form.dueDate) { alert('Fill Title and Due Date'); return; }
 
     const { _images, _imageNames, _removeImages, image: _oi, imageName: _on, ...taskFields } = form;
-    const newImgs  = _images       || [null,null,null];
-    const newNames = _imageNames   || ['','',''];
-    const remImgs  = _removeImages || [false,false,false];
+    const newImgs  = _images       || [null,null,null,null,null];
+    const newNames = _imageNames   || ['','','','',''];
+    const remImgs  = _removeImages || [false,false,false,false,false];
 
     let updatedTasks, updatedLogs, taskId;
 
     const countImages = (tid) => {
       let c = 0;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 5; i++) {
         const existing = !!(images[tid]?.[i]);
         if (newImgs[i] || (!remImgs[i] && existing)) c++;
       }
@@ -428,8 +430,8 @@ const App = () => {
     await saveLogs(updatedLogs);
 
     // Upload / remove each image slot independently in KV
-    const localSlots = [...(images[taskId] || [null,null,null])];
-    for (let i = 0; i < 3; i++) {
+    const localSlots = [...(images[taskId] || [null,null,null,null,null])];
+    for (let i = 0; i < 5; i++) {
       if (newImgs[i]) {
         try {
           const r = await fetch(`${API_URL}/images`, {
@@ -637,7 +639,7 @@ const App = () => {
           const taskImgs = (() => {
             const slots = Array.isArray(images[task.id])
               ? images[task.id]
-              : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null);
+              : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null);
             return (slots || []).filter(Boolean);
           })();
 
@@ -808,7 +810,7 @@ const App = () => {
 
     for (const task of bkTasks) {
       const taskImgs = (() => {
-        const slots = Array.isArray(images[task.id]) ? images[task.id] : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null);
+        const slots = Array.isArray(images[task.id]) ? images[task.id] : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null);
         return (slots || []).filter(Boolean);
       })();
       const descLines = task.description ? doc.splitTextToSize(task.description, contentW - 14).slice(0,3) : [];
@@ -1915,11 +1917,11 @@ const App = () => {
                           // Support both new (array) and old (string) image formats
                           const slots = Array.isArray(images[task.id])
                             ? images[task.id]
-                            : (images[task.id] || task.image) ? [images[task.id] || task.image, null, null] : null;
+                            : (images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null;
                           const visible = slots?.filter(Boolean);
                           if (!visible?.length) return null;
                           return (
-                            <div style={{ display: 'grid', gridTemplateColumns: visible.length === 1 ? '1fr' : visible.length === 2 ? '1fr 1fr' : '1fr 1fr 1fr', gap: '4px', marginBottom: '0.75rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: visible.length === 1 ? '1fr' : visible.length === 2 ? '1fr 1fr' : 'repeat(3, 1fr)', gap: '4px', marginBottom: '0.75rem' }}>
                               {visible.map((src, idx) => (
                                 <div key={idx} style={{ position: 'relative', cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e5e7eb' }}
                                   onClick={() => setLightbox({ src, title: task.title, all: visible, idx })}>
@@ -2053,13 +2055,13 @@ const App = () => {
               <input type="email" value={form.assignedEmail || ''} onChange={e => setForm({ ...form, assignedEmail: e.target.value })} placeholder="e.g. manager@example.com" style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             </div>
 
-            {/* ── Photo Attachments (up to 3) ── */}
+            {/* ── Photo Attachments (up to 5) ── */}
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>(up to 3)</span>
+                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>(up to 5)</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                {[0,1,2].map(slot => {
+                {[0,1,2,3,4].map(slot => {
                   const newUrl = form._images?.[slot];
                   const removing = form._removeImages?.[slot];
                   const existingUrl = removing ? null : (edit ? images[edit.id]?.[slot] : null);
@@ -2070,8 +2072,8 @@ const App = () => {
                         <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '2px solid #e5e7eb' }}>
                           <img src={displayUrl} alt={`photo ${slot+1}`} style={{ width: '100%', height: '90px', objectFit: 'cover', display: 'block' }} />
                           <button onClick={() => setForm(f => {
-                            const imgs = [...(f._images||[null,null,null])];
-                            const rems = [...(f._removeImages||[false,false,false])];
+                            const imgs = [...(f._images||[null,null,null,null,null])];
+                            const rems = [...(f._removeImages||[false,false,false,false,false])];
                             if (imgs[slot]) { imgs[slot] = null; }
                             else { rems[slot] = true; }
                             return { ...f, _images: imgs, _removeImages: rems };
