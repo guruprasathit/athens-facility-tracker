@@ -10,6 +10,22 @@ const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const SEND_DELAY_MS = 500; // stay within Resend's 2 req/s rate limit
 
+function commentsHtml(comments) {
+  if (!Array.isArray(comments) || comments.length === 0) return '';
+  const rows = comments.map(c => {
+    const ts = c.timestamp ? new Date(c.timestamp).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+    return `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:6px">
+      <div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:3px">${c.userName || c.user || 'User'}</div>
+      <div style="font-size:13px;color:#4b5563;line-height:1.5">${c.text}</div>
+      ${ts ? `<div style="font-size:11px;color:#9ca3af;margin-top:5px">${ts}</div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e5e7eb">
+    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">💬 Comments (${comments.length})</div>
+    ${rows}
+  </div>`;
+}
+
 function pdfBacklogEmailHtml(taskCount, customMessage) {
   return `<!DOCTYPE html>
 <html>
@@ -66,6 +82,7 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage) {
           <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">BACKLOG</span>
         </div>
         ${imageSection}
+        ${commentsHtml(task.comments)}
       </div>
       <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update this task.</p>
     </div>
@@ -84,7 +101,7 @@ function backlogEmailHtml(backlogTasks, customMessage) {
     const cat = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
     return `
       <tr>
-        <td style="padding:10px 14px;font-weight:600;color:#111827;border-bottom:1px solid #f3f4f6">${task.title}${task.description ? `<div style="font-weight:400;color:#6b7280;font-size:12px;margin-top:2px">${task.description}</div>` : ''}</td>
+        <td style="padding:10px 14px;font-weight:600;color:#111827;border-bottom:1px solid #f3f4f6">${task.title}${task.description ? `<div style="font-weight:400;color:#6b7280;font-size:12px;margin-top:2px">${task.description}</div>` : ''}${Array.isArray(task.comments) && task.comments.length > 0 ? `<div style="margin-top:6px;font-size:11px;color:#6b7280;font-weight:400">💬 ${task.comments.length} comment${task.comments.length > 1 ? 's' : ''}: ${task.comments.map(c => `<span style="color:#374151;font-weight:600">${c.userName||c.user}:</span> ${c.text}`).join(' · ')}</div>` : ''}</td>
         <td style="padding:10px 14px;text-align:center;border-bottom:1px solid #f3f4f6"><span style="background:${pc}22;color:${pc};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap">${(task.priority||'').toUpperCase()}</span></td>
         <td style="padding:10px 14px;color:#7c3aed;font-size:12px;font-weight:600;border-bottom:1px solid #f3f4f6">${cat}</td>
         <td style="padding:10px 14px;color:#6b7280;font-size:12px;border-bottom:1px solid #f3f4f6;white-space:nowrap">${task.dueDate || '—'}</td>
@@ -158,6 +175,7 @@ function emailHtml(task, label) {
           <span style="background:${isOverdue ? '#fee2e2' : '#dbeafe'};color:${isOverdue ? '#ef4444' : '#3b82f6'};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">Due: ${task.dueDate}</span>
           <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">Status: ${(task.status || '').replace('-', ' ').toUpperCase()}</span>
         </div>
+        ${commentsHtml(task.comments)}
       </div>
       <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to update or complete this task.</p>
     </div>

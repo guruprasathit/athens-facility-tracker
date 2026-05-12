@@ -489,7 +489,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails,
-          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status }],
+          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: task.comments || [] }],
         }),
       });
       const data = await res.json();
@@ -909,7 +909,7 @@ const App = () => {
       const tasksPayload = backlogTasks.map(t => ({
         id: t.id, title: t.title, description: t.description,
         priority: t.priority, category: t.category, label: t.label,
-        dueDate: t.dueDate, status: t.status,
+        dueDate: t.dueDate, status: t.status, comments: t.comments || [],
       }));
       const res = await fetch(`${API_URL}/notify`, {
         method: 'POST',
@@ -946,7 +946,7 @@ const App = () => {
       const tasksPayload = toSend.map(t => ({
         id: t.id, title: t.title, description: t.description,
         priority: t.priority, category: t.category, label: t.label,
-        dueDate: t.dueDate, status: t.status,
+        dueDate: t.dueDate, status: t.status, comments: t.comments || [],
       }));
       const res = await fetch(`${API_URL}/notify`, {
         method: 'POST',
