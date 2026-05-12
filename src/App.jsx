@@ -63,7 +63,8 @@ const App = () => {
   const [loginSuccess, setLoginSuccess] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmail: '' });
+  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmails: [] });
+  const [newEmailInput, setNewEmailInput] = useState('');
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
@@ -388,11 +389,16 @@ const App = () => {
   const open = (s = 'backlog', t = null) => {
     if (t) {
       const { image: _img, imageName: _name, ...taskFields } = t;
+      const assignedEmails = taskFields.assignedEmails?.length > 0
+        ? taskFields.assignedEmails
+        : (taskFields.assignedEmail ? [taskFields.assignedEmail] : []);
       setEdit(t);
-      setForm({ ...taskFields, ...BLANK_IMGS });
+      setNewEmailInput('');
+      setForm({ ...taskFields, assignedEmails, ...BLANK_IMGS });
     } else {
       setEdit(null);
-      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', label: '', assignedEmail: '', ...BLANK_IMGS });
+      setNewEmailInput('');
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', label: '', assignedEmails: [], ...BLANK_IMGS });
     }
     setModal(true);
   };
@@ -473,10 +479,21 @@ const App = () => {
   };
 
   const sendAlert = async (task) => {
+    const emails = task.assignedEmails?.length > 0
+      ? task.assignedEmails
+      : (task.assignedEmail ? [task.assignedEmail] : []);
+    if (emails.length === 0) { alert('No email assigned to this task.'); return; }
     try {
-      const res = await fetch(`${API_URL}/notify?taskId=${task.id}`);
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails,
+          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status }],
+        }),
+      });
       const data = await res.json();
-      if (res.ok) alert(`✅ Alert sent to ${data.email}`);
+      if (res.ok) alert(`✅ Alert sent to ${emails.join(', ')}`);
       else alert(`❌ Failed: ${data.error}`);
     } catch (err) { alert(`❌ Error: ${err.message}`); }
   };
@@ -551,7 +568,7 @@ const App = () => {
       'Completion Date': t.completionDate || '',
       'Completion Time': t.completionTime || '',
       'Created By': t.createdByName || t.createdBy,
-      'Assigned Email': t.assignedEmail || '',
+      'Assigned Emails': (t.assignedEmails?.length > 0 ? t.assignedEmails : (t.assignedEmail ? [t.assignedEmail] : [])).join(', '),
       'Created At': t.createdAt ? new Date(t.createdAt).toLocaleString() : '',
     }));
     const ld = logs.map(l => ({ Time: new Date(l.timestamp).toLocaleString(), User: l.userName, Action: l.action, Task: l.taskTitle, Details: l.details }));
@@ -721,7 +738,8 @@ const App = () => {
           let dateStr = `Due: ${task.dueDate}`;
           if (task.startDate) dateStr += `   Started: ${task.startDate}`;
           if (task.completionDate) dateStr += `   Completed: ${task.completionDate}`;
-          if (task.assignedEmail) dateStr += `   Assigned: ${task.assignedEmail}`;
+          const taskEmails741 = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+          if (taskEmails741.length > 0) dateStr += `   Assigned: ${taskEmails741.join(', ')}`;
           doc.text(dateStr, margin + 7, cy);
           cy += 7;
 
@@ -850,7 +868,8 @@ const App = () => {
       doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(107,114,128);
       let dateStr = `Due: ${task.dueDate}`;
       if (task.startDate) dateStr += `   Started: ${task.startDate}`;
-      if (task.assignedEmail) dateStr += `   Assigned: ${task.assignedEmail}`;
+      const taskEmails870 = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+      if (taskEmails870.length > 0) dateStr += `   Assigned: ${taskEmails870.join(', ')}`;
       doc.text(dateStr, margin + 7, cy); cy += 7;
 
       if (hasImgs) {
@@ -2080,13 +2099,22 @@ const App = () => {
                           <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             {!isViewer && <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>}
-                            {task.assignedEmail && task.status !== 'done' && !isViewer && <button onClick={() => sendAlert(task)} title={`Send alert to ${task.assignedEmail}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
+                            {(task.assignedEmails?.length > 0 || task.assignedEmail) && task.status !== 'done' && !isViewer && <button onClick={() => sendAlert(task)} title={`Send alert to assigned recipients`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
                             {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
                         {task.athensId && <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#667eea', marginBottom: '0.35rem', letterSpacing: '0.03em' }}>{task.athensId}</div>}
                         <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{task.description}</div>
-                        {task.assignedEmail && <div style={{ fontSize: '0.75rem', color: '#667eea', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={11} />{task.assignedEmail}</div>}
+                        {(() => {
+                          const emails = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+                          return emails.length > 0 ? (
+                            <div style={{ marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              {emails.map((em, i) => (
+                                <div key={i} style={{ fontSize: '0.73rem', color: '#667eea', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={11} />{em}</div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
                         {(() => {
                           // Support both new (array) and old (string) image formats
                           const slots = Array.isArray(images[task.id])
@@ -2225,8 +2253,51 @@ const App = () => {
             </select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — receives overdue alerts)</span></div>
-              <input type="email" value={form.assignedEmail || ''} onChange={e => setForm({ ...form, assignedEmail: e.target.value })} placeholder="e.g. manager@example.com" style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email(s) <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — receives overdue alerts)</span></div>
+              {(form.assignedEmails || []).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  {(form.assignedEmails || []).map((em, i) => (
+                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '20px', padding: '0.2rem 0.5rem 0.2rem 0.75rem', fontSize: '0.78rem', fontWeight: 600 }}>
+                      {em}
+                      <button type="button" onClick={() => setForm(f => ({ ...f, assignedEmails: f.assignedEmails.filter((_, j) => j !== i) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', padding: 0, lineHeight: 1 }}><X size={12} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  type="email"
+                  value={newEmailInput}
+                  onChange={e => setNewEmailInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const em = newEmailInput.trim().toLowerCase();
+                      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
+                        setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                        setNewEmailInput('');
+                      }
+                    }
+                  }}
+                  placeholder="e.g. manager@example.com"
+                  style={{ flex: 1, padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.875rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const em = newEmailInput.trim().toLowerCase();
+                    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
+                      setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                      setNewEmailInput('');
+                    } else if (newEmailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailInput.trim())) {
+                      alert('Please enter a valid email address.');
+                    }
+                  }}
+                  style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}
+                >
+                  <Plus size={14} />Add
+                </button>
+              </div>
             </div>
 
             {/* ── Photo Attachments (up to 5) ── */}

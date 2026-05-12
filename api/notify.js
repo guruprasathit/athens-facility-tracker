@@ -294,52 +294,66 @@ export default async function handler(req, res) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
 
+  const getTaskEmails = (task) =>
+    task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+
   // ── Manual single-task send (/api/notify?taskId=X) ───────────────────────────
   const { taskId } = req.query || {};
   if (taskId) {
     const task = tasks.find(t => String(t.id) === String(taskId));
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (!task.assignedEmail) return res.status(400).json({ error: 'Task has no assigned email' });
+    const emails = getTaskEmails(task);
+    if (emails.length === 0) return res.status(400).json({ error: 'Task has no assigned email' });
     if (task.status === 'done') return res.status(400).json({ error: 'Task is already done' });
 
-    try {
-      const emailRes = await sendEmail(apiKey, task);
-      if (emailRes.ok) {
-        return res.status(200).json({ success: true, email: task.assignedEmail, task: task.title });
+    const results = [];
+    let sent = 0;
+    for (let i = 0; i < emails.length; i++) {
+      try {
+        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: emails[i] });
+        if (emailRes.ok) { sent++; results.push({ email: emails[i], status: 'sent' }); }
+        else { const b = await emailRes.json().catch(() => ({})); results.push({ email: emails[i], status: 'failed', error: b.message || emailRes.statusText }); }
+      } catch (err) {
+        results.push({ email: emails[i], status: 'error', error: err.message });
       }
-      const body = await emailRes.json().catch(() => ({}));
-      return res.status(502).json({ error: body.message || 'Failed to send email' });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
+      if (i < emails.length - 1) await sleep(SEND_DELAY_MS);
     }
+    return res.status(200).json({ success: sent > 0, sent, total: emails.length, task: task.title, results });
   }
 
   // ── Daily cron: all overdue tasks ─────────────────────────────────────────────
   const overdue = tasks.filter(t => {
-    if (!t.assignedEmail || t.status === 'done') return false;
+    if (t.status === 'done') return false;
+    const emails = getTaskEmails(t);
+    if (emails.length === 0) return false;
     const due = new Date(t.dueDate + 'T00:00:00');
     return due < today;
   });
 
   const results = [];
   for (const task of overdue) {
-    const notifKey = `notif:${task.id}:${todayStr}`;
-    const alreadySent = await get(notifKey);
-    if (alreadySent) {
-      results.push({ taskId: task.id, email: task.assignedEmail, status: 'already_sent' });
-      continue;
-    }
-    try {
-      const emailRes = await sendEmail(apiKey, task);
-      if (emailRes.ok) {
-        await set(notifKey, { sentAt: new Date().toISOString(), email: task.assignedEmail });
-        results.push({ taskId: task.id, email: task.assignedEmail, status: 'sent' });
-      } else {
-        const body = await emailRes.json().catch(() => ({}));
-        results.push({ taskId: task.id, email: task.assignedEmail, status: 'failed', error: body.message || emailRes.statusText });
+    const emails = getTaskEmails(task);
+    for (let ei = 0; ei < emails.length; ei++) {
+      const email = emails[ei];
+      const notifKey = `notif:${task.id}:${email}:${todayStr}`;
+      const alreadySent = await get(notifKey);
+      if (alreadySent) {
+        results.push({ taskId: task.id, email, status: 'already_sent' });
+        continue;
       }
-    } catch (err) {
-      results.push({ taskId: task.id, email: task.assignedEmail, status: 'error', error: err.message });
+      try {
+        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: email });
+        if (emailRes.ok) {
+          await set(notifKey, { sentAt: new Date().toISOString(), email });
+          results.push({ taskId: task.id, email, status: 'sent' });
+        } else {
+          const body = await emailRes.json().catch(() => ({}));
+          results.push({ taskId: task.id, email, status: 'failed', error: body.message || emailRes.statusText });
+        }
+      } catch (err) {
+        results.push({ taskId: task.id, email, status: 'error', error: err.message });
+      }
+      if (ei < emails.length - 1) await sleep(SEND_DELAY_MS);
     }
   }
 
