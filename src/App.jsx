@@ -22,6 +22,11 @@ const App = () => {
   const [pdfMailMessage, setPdfMailMessage] = useState('');
   const [pdfMailSending, setPdfMailSending] = useState(false);
   const [pdfMailResult, setPdfMailResult] = useState(null);
+  const [overdueNotifyEmails, setOverdueNotifyEmails] = useState('');
+  const [overdueNotifyMessage, setOverdueNotifyMessage] = useState('');
+  const [overdueNotifySending, setOverdueNotifySending] = useState(false);
+  const [overdueNotifyResult, setOverdueNotifyResult] = useState(null);
+  const [overdueSelectedIds, setOverdueSelectedIds] = useState(null);
   const [usersData, setUsersData] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [shareModal, setShareModal] = useState(false);
@@ -906,6 +911,43 @@ const App = () => {
     setNotifySending(false);
   };
 
+  const sendOverdueNotify = async (overdueTasks) => {
+    const emailList = overdueNotifyEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const toSend = overdueSelectedIds
+      ? overdueTasks.filter(t => overdueSelectedIds.has(t.id))
+      : overdueTasks;
+    if (toSend.length === 0) { alert('No overdue tasks selected to notify about.'); return; }
+    setOverdueNotifySending(true);
+    setOverdueNotifyResult(null);
+    try {
+      const tasksPayload = toSend.map(t => ({
+        id: t.id, title: t.title, description: t.description,
+        priority: t.priority, category: t.category, label: t.label,
+        dueDate: t.dueDate, status: t.status,
+      }));
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: overdueNotifyMessage, tasks: tasksPayload }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOverdueNotifyResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Overdue notification sent: ${data.taskCount} task(s) to ${emailList.length} recipient(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setOverdueNotifyResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setOverdueNotifyResult({ success: false, error: err.message });
+    }
+    setOverdueNotifySending(false);
+  };
+
   const downloadBacklogPdf = async () => {
     const backlogTasks = tasks.filter(t => t.status === 'backlog');
     if (backlogTasks.length === 0) { alert('No backlog tasks to export.'); return; }
@@ -1281,6 +1323,12 @@ const App = () => {
             </button>
           )}
           {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('overdue'); setOverdueNotifyResult(null); setOverdueSelectedIds(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'overdue' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'overdue' ? '#ef4444' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'overdue' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Clock size={16} />Overdue Notify
+              {stats.o > 0 && <span style={{ background: '#ef4444', color: 'white', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 800, padding: '0.05rem 0.4rem', marginLeft: '0.1rem' }}>{stats.o}</span>}
+            </button>
+          )}
+          {user.role === 'admin' && (
             <button onClick={() => { setActiveTab('pdfmail'); setPdfMailResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'pdfmail' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'pdfmail' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'pdfmail' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <FileText size={16} />Generate PDF &amp; Mail
             </button>
@@ -1498,6 +1546,154 @@ const App = () => {
                 style={{ padding: '0.9rem 2.5rem', background: notifySending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: notifySending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
                 <Send size={18} />
                 {notifySending ? 'Sending…' : `Send to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Overdue Notify Tab ── */}
+        {activeTab === 'overdue' && (() => {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const overdueTasks = tasks
+            .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate + 'T00:00:00') < today)
+            .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+          const selectedSet = overdueSelectedIds || new Set(overdueTasks.map(t => t.id));
+          const toggleTask = (id) => {
+            const next = new Set(selectedSet);
+            next.has(id) ? next.delete(id) : next.add(id);
+            setOverdueSelectedIds(next);
+          };
+          const toggleAll = () => {
+            if (selectedSet.size === overdueTasks.length) setOverdueSelectedIds(new Set());
+            else setOverdueSelectedIds(new Set(overdueTasks.map(t => t.id)));
+          };
+          const selectedCount = selectedSet.size;
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Clock size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Notify Overdue Tasks</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Select overdue tasks and send email alerts to recipients in one click</p>
+                </div>
+              </div>
+
+              {/* Overdue task list */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Clock size={14} style={{ color: '#ef4444' }} />
+                    Overdue Tasks ({overdueTasks.length})
+                  </div>
+                  {overdueTasks.length > 0 && (
+                    <button onClick={toggleAll} style={{ background: 'none', border: 'none', color: '#667eea', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', padding: '0.2rem 0.5rem' }}>
+                      {selectedSet.size === overdueTasks.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </div>
+                {overdueTasks.length === 0 ? (
+                  <div style={{ padding: '2rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', color: '#065f46', fontSize: '0.9rem', textAlign: 'center', fontWeight: 600 }}>
+                    ✅ No overdue tasks — everything is on track!
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '380px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {overdueTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      const daysOverdue = Math.ceil((today - new Date(t.dueDate + 'T00:00:00')) / 86400000);
+                      const isSelected = selectedSet.has(t.id);
+                      return (
+                        <div key={t.id}
+                          onClick={() => toggleTask(t.id)}
+                          style={{ padding: '0.7rem 0.9rem', background: isSelected ? '#fef2f2' : '#f9fafb', border: `1px solid ${isSelected ? '#fca5a5' : '#e5e7eb'}`, borderLeft: `4px solid ${pc.c}`, borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleTask(t.id)} onClick={e => e.stopPropagation()} style={{ accentColor: '#ef4444', width: '16px', height: '16px', flexShrink: 0, cursor: 'pointer' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#111827' }}>{t.title}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#f3f4f6', color: '#6b7280', flexShrink: 0, textTransform: 'capitalize' }}>{t.status.replace('-', ' ')}</span>
+                            </div>
+                            {t.description && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</div>}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', flexShrink: 0 }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ef4444', background: '#fee2e2', padding: '0.2rem 0.5rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                              ⚠️ {daysOverdue}d overdue
+                            </span>
+                            <span style={{ fontSize: '0.68rem', color: '#9ca3af' }}>{t.dueDate}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recipient emails */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={overdueNotifyEmails}
+                  onChange={e => setOverdueNotifyEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#ef4444'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Custom message */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
+                </label>
+                <textarea
+                  value={overdueNotifyMessage}
+                  onChange={e => setOverdueNotifyMessage(e.target.value)}
+                  placeholder="These tasks are overdue and require immediate attention…"
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#ef4444'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Result banner */}
+              {overdueNotifyResult && (
+                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: overdueNotifyResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${overdueNotifyResult.success ? '#6ee7b7' : '#fca5a5'}`, color: overdueNotifyResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {overdueNotifyResult.success
+                    ? `✅ ${overdueNotifyResult.sent} of ${overdueNotifyResult.total} emails sent — ${overdueNotifyResult.taskCount} task${overdueNotifyResult.taskCount !== 1 ? 's' : ''} × ${overdueNotifyResult.recipientCount} recipient${overdueNotifyResult.recipientCount !== 1 ? 's' : ''}.`
+                    : `Failed to send: ${overdueNotifyResult.error}`}
+                  {overdueNotifyResult.success && Array.isArray(overdueNotifyResult.results) && overdueNotifyResult.results.length > 0 && (
+                    <div style={{ marginTop: '0.75rem', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', background: 'white' }}>
+                      <div style={{ padding: '0.4rem 0.9rem', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Delivery Report</div>
+                      {overdueNotifyResult.results.map((r, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0.9rem', borderBottom: i < overdueNotifyResult.results.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                          <span>{r.status === 'sent' ? '✅' : '❌'}</span>
+                          <span style={{ fontSize: '0.8rem', color: '#374151', flex: 1 }}>{r.taskTitle}</span>
+                          <span style={{ fontSize: '0.75rem', color: '#6b7280', wordBreak: 'break-all' }}>{r.email}</span>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '20px', background: r.status === 'sent' ? '#d1fae5' : '#fee2e2', color: r.status === 'sent' ? '#065f46' : '#991b1b', flexShrink: 0 }}>
+                            {r.status === 'sent' ? 'Sent' : r.error || 'Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => sendOverdueNotify(overdueTasks)}
+                disabled={overdueNotifySending || selectedCount === 0 || overdueTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: overdueNotifySending ? '#9ca3af' : 'linear-gradient(135deg,#ef4444,#dc2626)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: overdueNotifySending || selectedCount === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(239,68,68,0.35)', transition: 'opacity 0.2s', opacity: overdueNotifySending || selectedCount === 0 ? 0.7 : 1 }}>
+                <Send size={18} />
+                {overdueNotifySending ? 'Sending…' : `Send Overdue Alerts (${selectedCount} task${selectedCount !== 1 ? 's' : ''})`}
               </button>
             </div>
           );
