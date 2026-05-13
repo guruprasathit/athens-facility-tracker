@@ -439,6 +439,29 @@ const App = () => {
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
 
+    // Auto-notify assigned emails
+    const assignedEmails = taskFields.assignedEmails || [];
+    let emailsToNotify = [];
+    if (!edit) {
+      emailsToNotify = assignedEmails;
+    } else {
+      const prevEmails = edit.assignedEmails || (edit.assignedEmail ? [edit.assignedEmail] : []);
+      emailsToNotify = assignedEmails.filter(e => !prevEmails.includes(e));
+    }
+    if (emailsToNotify.length > 0) {
+      const savedTask = updatedTasks.find(t => t.id === taskId);
+      try {
+        await fetch(`${API_URL}/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            emails: emailsToNotify,
+            tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
+          }),
+        });
+      } catch (e) { console.error('Auto-notify failed:', e); }
+    }
+
     // Upload / remove each image slot independently in KV
     const localSlots = [...(images[taskId] || [null,null,null,null,null])];
     for (let i = 0; i < 5; i++) {
