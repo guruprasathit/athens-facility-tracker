@@ -450,16 +450,15 @@ const App = () => {
     }
     if (emailsToNotify.length > 0) {
       const savedTask = updatedTasks.find(t => t.id === taskId);
-      try {
-        await fetch(`${API_URL}/notify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            emails: emailsToNotify,
-            tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
-          }),
-        });
-      } catch (e) { console.error('Auto-notify failed:', e); }
+      // fire-and-forget so the modal closes immediately
+      fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails: emailsToNotify,
+          tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
+        }),
+      }).catch(e => console.error('Auto-notify failed:', e));
     }
 
     // Upload / remove each image slot independently in KV
