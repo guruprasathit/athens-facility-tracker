@@ -84,7 +84,10 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage) {
         ${imageSection}
         ${commentsHtml(task.comments)}
       </div>
-      <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update this task.</p>
+      <p style="margin:0 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update this task.</p>
+      <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:14px 18px;text-align:center">
+        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
+      </div>
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This notification was sent by an administrator of the Athens Community Facility Tracker.
@@ -133,7 +136,10 @@ function backlogEmailHtml(backlogTasks, customMessage) {
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <p style="margin:20px 0 0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update these tasks.</p>
+      <p style="margin:20px 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update these tasks.</p>
+      <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:14px 18px;text-align:center">
+        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
+      </div>
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This notification was sent by an administrator of the Athens Community Facility Tracker.
@@ -177,7 +183,10 @@ function emailHtml(task, label) {
         </div>
         ${commentsHtml(task.comments)}
       </div>
-      <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to update or complete this task.</p>
+      <p style="margin:0 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to update or complete this task.</p>
+      <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:14px 18px;text-align:center">
+        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
+      </div>
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This is an automated alert from the Athens Community Facility Tracker.
