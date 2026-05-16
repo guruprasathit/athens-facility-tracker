@@ -227,7 +227,7 @@ export default async function handler(req, res) {
 
   // ── Bulk backlog notify (POST) — one email per task per recipient ─────────────
   if (req.method === 'POST') {
-    const { emails, message, tasks: payloadTasks, pdfBase64, taskCount } = req.body || {};
+    const { emails, cc: ccEmails, message, tasks: payloadTasks, pdfBase64, taskCount } = req.body || {};
     if (!Array.isArray(emails) || emails.length === 0) {
       return res.status(400).json({ error: 'emails array is required' });
     }
@@ -296,22 +296,46 @@ export default async function handler(req, res) {
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
       const html = taskNotifyEmailHtml(task, cidRefs, message || '');
 
-      for (let ei = 0; ei < emails.length; ei++) {
-        const email = emails[ei];
+      // If cc is provided, send one email with to/cc instead of looping per recipient
+      if (Array.isArray(ccEmails) && ccEmails.length > 0) {
+        const email = emails[0];
         try {
-          const payload = { from: FROM, to: email, subject, html };
+          const payload = { from: FROM, to: email, cc: ccEmails, subject, html };
           if (attachments.length > 0) payload.attachments = attachments;
           const r = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
-          if (r.ok) { sent++; results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' }); }
-          else { const b = await r.json().catch(() => ({})); results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText }); }
+          if (r.ok) {
+            sent += 1 + ccEmails.length;
+            results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' });
+            ccEmails.forEach(cc => results.push({ taskId: task.id, taskTitle: task.title, email: cc, status: 'sent (cc)' }));
+          } else {
+            const b = await r.json().catch(() => ({}));
+            results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText });
+          }
         } catch (err) {
           results.push({ taskId: task.id, taskTitle: task.title, email, status: 'error', error: err.message });
         }
-        if (ei < emails.length - 1 || ti < payloadTasks.length - 1) await sleep(SEND_DELAY_MS);
+      } else {
+        for (let ei = 0; ei < emails.length; ei++) {
+          const email = emails[ei];
+          try {
+            const payload = { from: FROM, to: email, subject, html };
+            if (attachments.length > 0) payload.attachments = attachments;
+            const r = await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            if (r.ok) { sent++; results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' }); }
+            else { const b = await r.json().catch(() => ({})); results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText }); }
+          } catch (err) {
+            results.push({ taskId: task.id, taskTitle: task.title, email, status: 'error', error: err.message });
+          }
+          if (ei < emails.length - 1 || ti < payloadTasks.length - 1) await sleep(SEND_DELAY_MS);
+        }
       }
     }
     return res.status(200).json({ sent, total: payloadTasks.length * emails.length, taskCount: payloadTasks.length, recipientCount: emails.length, results });

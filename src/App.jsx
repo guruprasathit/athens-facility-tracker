@@ -545,11 +545,15 @@ const App = () => {
         localStorage.setItem('mentionEmailPool', JSON.stringify(merged));
         return merged;
       });
+      const assignee = (task.assignedEmails || [])[0];
+      const toEmail = assignee && mentions.includes(assignee) ? assignee : mentions[0];
+      const ccEmails = mentions.filter(e => e !== toEmail);
       fetch(`${API_URL}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          emails: mentions,
+          emails: [toEmail],
+          cc: ccEmails.length > 0 ? ccEmails : undefined,
           message: `💬 ${user.name || user.username} mentioned you in a comment:\n\n"${text}"`,
           tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: [...existing, comment] }]
         })
