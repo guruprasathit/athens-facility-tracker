@@ -69,6 +69,9 @@ const App = () => {
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
   const [mentionDropdown, setMentionDropdown] = useState({ taskId: null, suggestions: [] });
+  const [mentionEmailPool, setMentionEmailPool] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mentionEmailPool') || '[]'); } catch { return []; }
+  });
   const fileRef0 = useRef(null);
   const fileRef1 = useRef(null);
   const fileRef2 = useRef(null);
@@ -536,6 +539,11 @@ const App = () => {
     await saveTasks(updatedTasks);
     const mentions = [...text.matchAll(/@([^\s@,;]+@[^\s@,;]+\.[^\s@,;]+)/g)].map(m => m[1]);
     if (mentions.length > 0) {
+      setMentionEmailPool(prev => {
+        const merged = [...new Set([...prev, ...mentions])];
+        localStorage.setItem('mentionEmailPool', JSON.stringify(merged));
+        return merged;
+      });
       fetch(`${API_URL}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -553,7 +561,8 @@ const App = () => {
     const lastAt = value.lastIndexOf('@');
     if (lastAt >= 0) {
       const query = value.slice(lastAt + 1).split(/[\s,;]/)[0].toLowerCase();
-      const suggestions = (assignedEmails || []).filter(e => e.toLowerCase().includes(query));
+      const allEmails = [...new Set([...mentionEmailPool, ...(assignedEmails || []), ...tasks.flatMap(t => t.assignedEmails || [])])];
+      const suggestions = allEmails.filter(e => e.toLowerCase().includes(query));
       setMentionDropdown(suggestions.length > 0 ? { taskId, suggestions } : { taskId: null, suggestions: [] });
     } else {
       setMentionDropdown({ taskId: null, suggestions: [] });
