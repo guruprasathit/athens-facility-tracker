@@ -68,6 +68,7 @@ const App = () => {
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
+  const [mentionDropdown, setMentionDropdown] = useState({ taskId: null, suggestions: [] });
   const fileRef0 = useRef(null);
   const fileRef1 = useRef(null);
   const fileRef2 = useRef(null);
@@ -531,7 +532,51 @@ const App = () => {
     const updatedTasks = tasks.map(x => x.id === taskId ? { ...x, comments: [...existing, comment] } : x);
     setTasks(updatedTasks);
     setCommentInputs(prev => ({ ...prev, [taskId]: '' }));
+    setMentionDropdown({ taskId: null, suggestions: [] });
     await saveTasks(updatedTasks);
+    const mentions = [...text.matchAll(/@([^\s@,;]+@[^\s@,;]+\.[^\s@,;]+)/g)].map(m => m[1]);
+    if (mentions.length > 0) {
+      fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails: mentions,
+          message: `💬 ${user.name || user.username} mentioned you in a comment:\n\n"${text}"`,
+          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: [...existing, comment] }]
+        })
+      }).catch(() => {});
+    }
+  };
+
+  const handleCommentInput = (taskId, value, assignedEmails) => {
+    setCommentInputs(prev => ({ ...prev, [taskId]: value }));
+    const lastAt = value.lastIndexOf('@');
+    if (lastAt >= 0) {
+      const query = value.slice(lastAt + 1).split(/[\s,;]/)[0].toLowerCase();
+      const suggestions = (assignedEmails || []).filter(e => e.toLowerCase().includes(query));
+      setMentionDropdown(suggestions.length > 0 ? { taskId, suggestions } : { taskId: null, suggestions: [] });
+    } else {
+      setMentionDropdown({ taskId: null, suggestions: [] });
+    }
+  };
+
+  const selectMention = (taskId, email) => {
+    const current = commentInputs[taskId] || '';
+    const lastAt = current.lastIndexOf('@');
+    const before = current.slice(0, lastAt);
+    const afterAt = current.slice(lastAt + 1);
+    const trailingText = afterAt.slice(afterAt.split(/[\s,;]/)[0].length);
+    setCommentInputs(prev => ({ ...prev, [taskId]: `${before}@${email} ${trailingText}` }));
+    setMentionDropdown({ taskId: null, suggestions: [] });
+  };
+
+  const renderCommentText = (text) => {
+    const parts = text.split(/(@[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+)/g);
+    return parts.map((part, i) =>
+      /^@[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(part)
+        ? <span key={i} style={{ color: '#2563eb', fontWeight: 700, background: '#eff6ff', borderRadius: '3px', padding: '0 2px' }}>{part}</span>
+        : <span key={i}>{part}</span>
+    );
   };
 
   const nextAthensId = () => {
@@ -2190,19 +2235,45 @@ const App = () => {
                                 <span style={{ fontWeight: 600, color: '#374151' }}>{c.userName || c.user}</span>
                                 <span style={{ color: '#9ca3af' }}>{new Date(c.timestamp).toLocaleString()}</span>
                               </div>
-                              <div style={{ color: '#4b5563' }}>{c.text}</div>
+                              <div style={{ color: '#4b5563' }}>{renderCommentText(c.text)}</div>
                             </div>
                           ))}
                           {(task.comments || []).length < 5 && !isViewer && (
-                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
-                              <input
-                                value={commentInputs[task.id] || ''}
-                                onChange={e => setCommentInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                                onKeyDown={e => { if (e.key === 'Enter') addComment(task.id); }}
-                                placeholder="Add a comment…"
-                                style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none' }}
-                              />
-                              <button onClick={() => addComment(task.id)} style={{ padding: '0.4rem 0.6rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Post</button>
+                            <div style={{ position: 'relative', marginTop: '0.4rem' }}>
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <input
+                                  value={commentInputs[task.id] || ''}
+                                  onChange={e => handleCommentInput(task.id, e.target.value, task.assignedEmails)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Escape') setMentionDropdown({ taskId: null, suggestions: [] });
+                                    if (e.key === 'Enter' && mentionDropdown.taskId !== task.id) addComment(task.id);
+                                  }}
+                                  placeholder="Add a comment… type @ to mention"
+                                  style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none' }}
+                                />
+                                <button onClick={() => addComment(task.id)} style={{ padding: '0.4rem 0.6rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Post</button>
+                              </div>
+                              {mentionDropdown.taskId === task.id && mentionDropdown.suggestions.length > 0 && (
+                                <div style={{ position: 'absolute', bottom: '110%', left: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: '220px', overflow: 'hidden' }}>
+                                  <div style={{ padding: '0.35rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tag person</div>
+                                  {mentionDropdown.suggestions.map(email => (
+                                    <div
+                                      key={email}
+                                      onMouseDown={e => { e.preventDefault(); selectMention(task.id, email); }}
+                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                    >
+                                      <span style={{ fontSize: '0.7rem' }}>@</span>{email}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {(task.assignedEmails || []).length > 0 && (
+                                <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: '0.25rem' }}>
+                                  Type <strong style={{ color: '#667eea' }}>@</strong> to mention: {(task.assignedEmails || []).join(', ')}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
