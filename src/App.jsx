@@ -68,7 +68,8 @@ const App = () => {
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
-  const [mentionDropdown, setMentionDropdown] = useState({ taskId: null, suggestions: [] });
+  const [mentionDropdown, setMentionDropdown] = useState({ taskId: null, suggestions: [], query: '' });
+  const [addContactInput, setAddContactInput] = useState('');
   const [mentionEmailPool, setMentionEmailPool] = useState(() => {
     try { return JSON.parse(localStorage.getItem('mentionEmailPool') || '[]'); } catch { return []; }
   });
@@ -560,13 +561,29 @@ const App = () => {
     setCommentInputs(prev => ({ ...prev, [taskId]: value }));
     const lastAt = value.lastIndexOf('@');
     if (lastAt >= 0) {
-      const query = value.slice(lastAt + 1).split(/[\s,;]/)[0].toLowerCase();
-      const allEmails = [...new Set([...mentionEmailPool, ...(assignedEmails || []), ...tasks.flatMap(t => t.assignedEmails || [])])];
-      const suggestions = allEmails.filter(e => e.toLowerCase().includes(query));
-      setMentionDropdown(suggestions.length > 0 ? { taskId, suggestions } : { taskId: null, suggestions: [] });
+      const afterAt = value.slice(lastAt + 1);
+      if (!afterAt.includes(' ') && !afterAt.includes(',')) {
+        const query = afterAt.toLowerCase();
+        const allEmails = [...new Set([...mentionEmailPool, ...(assignedEmails || []), ...tasks.flatMap(t => t.assignedEmails || [])])];
+        const suggestions = allEmails.filter(e => e.toLowerCase().includes(query));
+        setMentionDropdown({ taskId, suggestions, query: afterAt });
+      } else {
+        setMentionDropdown({ taskId: null, suggestions: [], query: '' });
+      }
     } else {
-      setMentionDropdown({ taskId: null, suggestions: [] });
+      setMentionDropdown({ taskId: null, suggestions: [], query: '' });
     }
+  };
+
+  const addEmailToPool = (email) => {
+    const e = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return;
+    setMentionEmailPool(prev => {
+      if (prev.includes(e)) return prev;
+      const merged = [...prev, e];
+      localStorage.setItem('mentionEmailPool', JSON.stringify(merged));
+      return merged;
+    });
   };
 
   const selectMention = (taskId, email) => {
@@ -2262,25 +2279,51 @@ const App = () => {
                                 />
                                 <button onClick={() => addComment(task.id)} style={{ padding: '0.4rem 0.6rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Post</button>
                               </div>
-                              {mentionDropdown.taskId === task.id && mentionDropdown.suggestions.length > 0 && (
-                                <div style={{ position: 'absolute', bottom: '110%', left: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 100, minWidth: '220px', overflow: 'hidden' }}>
-                                  <div style={{ padding: '0.35rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tag person</div>
+                              {mentionDropdown.taskId === task.id && (
+                                <div style={{ position: 'absolute', bottom: '110%', left: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, minWidth: '260px', overflow: 'hidden' }}>
+                                  <div style={{ padding: '0.35rem 0.7rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tag person</div>
                                   {mentionDropdown.suggestions.map(email => (
                                     <div
                                       key={email}
                                       onMouseDown={e => { e.preventDefault(); selectMention(task.id, email); }}
-                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'white' }}
                                       onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
                                       onMouseLeave={e => e.currentTarget.style.background = 'white'}
                                     >
-                                      <span style={{ fontSize: '0.7rem' }}>@</span>{email}
+                                      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>@</span>{email}
                                     </div>
                                   ))}
-                                </div>
-                              )}
-                              {(task.assignedEmails || []).length > 0 && (
-                                <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: '0.25rem' }}>
-                                  Type <strong style={{ color: '#667eea' }}>@</strong> to mention: {(task.assignedEmails || []).join(', ')}
+                                  {mentionDropdown.suggestions.length === 0 && mentionDropdown.query && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mentionDropdown.query) && (
+                                    <div
+                                      onMouseDown={e => { e.preventDefault(); addEmailToPool(mentionDropdown.query); selectMention(task.id, mentionDropdown.query); }}
+                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'white' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = '#ecfdf5'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                    >
+                                      + Add "{mentionDropdown.query}" to contacts
+                                    </div>
+                                  )}
+                                  {mentionDropdown.suggestions.length === 0 && !mentionDropdown.query && (
+                                    <div style={{ padding: '0.6rem 0.75rem', borderBottom: '1px solid #f3f4f6' }}>
+                                      <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginBottom: '0.4rem' }}>No contacts yet. Add one:</div>
+                                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                        <input
+                                          value={addContactInput}
+                                          onChange={e => setAddContactInput(e.target.value)}
+                                          onMouseDown={e => e.stopPropagation()}
+                                          placeholder="email@example.com"
+                                          style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '5px', outline: 'none' }}
+                                        />
+                                        <button
+                                          onMouseDown={e => { e.preventDefault(); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addContactInput.trim())) { addEmailToPool(addContactInput.trim()); setAddContactInput(''); handleCommentInput(task.id, commentInputs[task.id] || '', task.assignedEmails); } }}
+                                          style={{ padding: '0.3rem 0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 }}
+                                        >Add</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {mentionDropdown.suggestions.length === 0 && mentionDropdown.query && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mentionDropdown.query) && (
+                                    <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: '#9ca3af' }}>No contacts match. Type a full email to add.</div>
+                                  )}
                                 </div>
                               )}
                             </div>
