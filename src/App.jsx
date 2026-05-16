@@ -1561,6 +1561,9 @@ const App = () => {
                   Message
                   <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
                 </label>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
+                  <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#2563eb' }}>athens-ec@caaoa.in</a></strong>
+                </p>
                 <textarea
                   value={notifyMessage}
                   onChange={e => setNotifyMessage(e.target.value)}
@@ -1694,6 +1697,9 @@ const App = () => {
                   Message
                   <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
                 </label>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
+                  <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#dc2626' }}>athens-ec@caaoa.in</a></strong>
+                </p>
                 <textarea
                   value={overdueNotifyMessage}
                   onChange={e => setOverdueNotifyMessage(e.target.value)}
@@ -2320,6 +2326,9 @@ const App = () => {
                   <Plus size={14} />Add
                 </button>
               </div>
+              <p style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: '#374151' }}>
+                <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#2563eb' }}>athens-ec@caaoa.in</a></strong>
+              </p>
             </div>
 
             {/* ── Photo Attachments (up to 5) ── */}
