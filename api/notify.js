@@ -296,11 +296,10 @@ export default async function handler(req, res) {
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
       const html = taskNotifyEmailHtml(task, cidRefs, message || '');
 
-      // If cc is provided, send one email with to/cc instead of looping per recipient
+      // If cc is provided, send one email with to (array) + cc instead of looping per recipient
       if (Array.isArray(ccEmails) && ccEmails.length > 0) {
-        const email = emails[0];
         try {
-          const payload = { from: FROM, to: email, cc: ccEmails, subject, html };
+          const payload = { from: FROM, to: emails, cc: ccEmails, subject, html };
           if (attachments.length > 0) payload.attachments = attachments;
           const r = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -308,15 +307,15 @@ export default async function handler(req, res) {
             body: JSON.stringify(payload),
           });
           if (r.ok) {
-            sent += 1 + ccEmails.length;
-            results.push({ taskId: task.id, taskTitle: task.title, email, status: 'sent' });
+            sent += emails.length + ccEmails.length;
+            emails.forEach(e => results.push({ taskId: task.id, taskTitle: task.title, email: e, status: 'sent' }));
             ccEmails.forEach(cc => results.push({ taskId: task.id, taskTitle: task.title, email: cc, status: 'sent (cc)' }));
           } else {
             const b = await r.json().catch(() => ({}));
-            results.push({ taskId: task.id, taskTitle: task.title, email, status: 'failed', error: b.message || r.statusText });
+            emails.forEach(e => results.push({ taskId: task.id, taskTitle: task.title, email: e, status: 'failed', error: b.message || r.statusText }));
           }
         } catch (err) {
-          results.push({ taskId: task.id, taskTitle: task.title, email, status: 'error', error: err.message });
+          emails.forEach(e => results.push({ taskId: task.id, taskTitle: task.title, email: e, status: 'error', error: err.message }));
         }
       } else {
         for (let ei = 0; ei < emails.length; ei++) {
