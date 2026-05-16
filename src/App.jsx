@@ -65,6 +65,7 @@ const App = () => {
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmails: [] });
   const [newEmailInput, setNewEmailInput] = useState('');
+  const [assignEmailDropdown, setAssignEmailDropdown] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
   const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
@@ -2420,39 +2421,78 @@ const App = () => {
                   ))}
                 </div>
               )}
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="email"
-                  value={newEmailInput}
-                  onChange={e => setNewEmailInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="email"
+                    value={newEmailInput}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setNewEmailInput(val);
+                      const q = val.trim().toLowerCase();
+                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                      const filtered = pool.filter(em => em.includes(q) && !(form.assignedEmails || []).includes(em));
+                      setAssignEmailDropdown(q.length > 0 ? filtered : pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                    }}
+                    onFocus={() => {
+                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                      setAssignEmailDropdown(pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                    }}
+                    onBlur={() => setTimeout(() => setAssignEmailDropdown([]), 150)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const em = newEmailInput.trim().toLowerCase();
+                        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
+                          setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                          addEmailToPool(em);
+                          setNewEmailInput('');
+                          setAssignEmailDropdown([]);
+                        }
+                      }
+                      if (e.key === 'Escape') setAssignEmailDropdown([]);
+                    }}
+                    placeholder="e.g. manager@example.com"
+                    style={{ flex: 1, padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.875rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
                       const em = newEmailInput.trim().toLowerCase();
                       if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
                         setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                        addEmailToPool(em);
                         setNewEmailInput('');
+                        setAssignEmailDropdown([]);
+                      } else if (newEmailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailInput.trim())) {
+                        alert('Please enter a valid email address.');
                       }
-                    }
-                  }}
-                  placeholder="e.g. manager@example.com"
-                  style={{ flex: 1, padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.875rem' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const em = newEmailInput.trim().toLowerCase();
-                    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
-                      setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
-                      setNewEmailInput('');
-                    } else if (newEmailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailInput.trim())) {
-                      alert('Please enter a valid email address.');
-                    }
-                  }}
-                  style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}
-                >
-                  <Plus size={14} />Add
-                </button>
+                    }}
+                    style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}
+                  >
+                    <Plus size={14} />Add
+                  </button>
+                </div>
+                {assignEmailDropdown.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, marginTop: '4px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto' }}>
+                    <div style={{ padding: '0.3rem 0.7rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saved contacts</div>
+                    {assignEmailDropdown.map(em => (
+                      <div
+                        key={em}
+                        onMouseDown={() => {
+                          setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                          setNewEmailInput('');
+                          setAssignEmailDropdown([]);
+                        }}
+                        style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'white' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                      >
+                        <Mail size={13} color="#93c5fd" />{em}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <p style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: '#374151' }}>
                 <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#2563eb' }}>athens-ec@caaoa.in</a></strong>
