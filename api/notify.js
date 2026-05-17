@@ -50,7 +50,7 @@ function pdfBacklogEmailHtml(taskCount, customMessage) {
 </html>`;
 }
 
-function taskNotifyEmailHtml(task, cidRefs, customMessage) {
+function taskNotifyEmailHtml(task, cidRefs, customMessage, subject) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
   const imageSection = cidRefs.length > 0 ? `
@@ -86,7 +86,7 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage) {
       </div>
       <p style="margin:0 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update this task.</p>
       <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:14px 18px;text-align:center">
-        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
+        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in?subject=Re%3A%20${encodeURIComponent(subject || '')}" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
       </div>
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
@@ -149,7 +149,7 @@ function backlogEmailHtml(backlogTasks, customMessage) {
 </html>`;
 }
 
-function emailHtml(task, label) {
+function emailHtml(task, subject) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -185,7 +185,7 @@ function emailHtml(task, label) {
       </div>
       <p style="margin:0 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to update or complete this task.</p>
       <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:14px 18px;text-align:center">
-        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
+        <strong style="color:#c2410c;font-size:14px">Please reply to <a href="mailto:athens-ec@caaoa.in?subject=Re%3A%20${encodeURIComponent(subject || '')}" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
       </div>
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
@@ -208,7 +208,7 @@ async function sendEmail(apiKey, task) {
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM, to: task.assignedEmail, subject, html: emailHtml(task) }),
+    body: JSON.stringify({ from: FROM, to: task.assignedEmail, subject, html: emailHtml(task, subject) }),
   });
   return emailRes;
 }
@@ -294,7 +294,7 @@ export default async function handler(req, res) {
       const cidRefs = attachments.map(a => a.content_id);
 
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
-      const html = taskNotifyEmailHtml(task, cidRefs, message || '');
+      const html = taskNotifyEmailHtml(task, cidRefs, message || '', subject);
 
       // If cc is provided, send one email with to (array) + cc instead of looping per recipient
       if (Array.isArray(ccEmails) && ccEmails.length > 0) {
