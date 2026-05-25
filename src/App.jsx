@@ -1,12 +1,56 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Mail, Paperclip } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield, Share2, Copy, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
 
 const App = () => {
   const [tasks, setTasks] = useState([]);
   const [logs, setLogs] = useState([]);
   const [modal, setModal] = useState(false);
   const [logModal, setLogModal] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState(() => new URLSearchParams(window.location.search).get('category') || 'all');
+  const [labelFilter, setLabelFilter] = useState(() => new URLSearchParams(window.location.search).get('label') || 'all');
+  const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
+  const [assignedFilter, setAssignedFilter] = useState(() => new URLSearchParams(window.location.search).get('assigned') || 'all');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [notifyEmails, setNotifyEmails] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifySending, setNotifySending] = useState(false);
+  const [notifyResult, setNotifyResult] = useState(null);
+  const [pdfMailEmails, setPdfMailEmails] = useState('');
+  const [pdfMailMessage, setPdfMailMessage] = useState('');
+  const [pdfMailSending, setPdfMailSending] = useState(false);
+  const [pdfMailResult, setPdfMailResult] = useState(null);
+  const [overdueNotifyEmails, setOverdueNotifyEmails] = useState('');
+  const [overdueNotifyMessage, setOverdueNotifyMessage] = useState('');
+  const [overdueNotifySending, setOverdueNotifySending] = useState(false);
+  const [overdueNotifyResult, setOverdueNotifyResult] = useState(null);
+  const [overdueSelectedIds, setOverdueSelectedIds] = useState(null);
+  const [usersData, setUsersData] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [shareModal, setShareModal] = useState(false);
+  const [shareLink, setShareLink] = useState('');
+  const [shareLinkLoading, setShareLinkLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareTokens, setShareTokens] = useState([]);
+  const [shareTokensLoading, setShareTokensLoading] = useState(false);
+  const [viewerChecking, setViewerChecking] = useState(() => !!(new URLSearchParams(window.location.search).get('share')));
+  const [viewerTokenError, setViewerTokenError] = useState('');
+  const [viewerExited, setViewerExited] = useState(false);
+
+  const LABELS = [
+    { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
+    { key: 'block-a',     label: 'Block A',     color: '#f97316' },
+    { key: 'block-b',     label: 'Block B',     color: '#10b981' },
+    { key: 'block-c',     label: 'Block C',     color: '#8b5cf6' },
+    { key: 'block-d',     label: 'Block D',     color: '#ef4444' },
+    { key: 'block-e',     label: 'Block E',     color: '#f59e0b' },
+    { key: 'block-f',     label: 'Block F',     color: '#ec4899' },
+    { key: 'clubhouse',       label: 'Clubhouse',        color: '#6366f1' },
+    { key: 'stilt-parking',   label: 'Stilt Parking',    color: '#0d9488' },
+    { key: 'basement-parking',label: 'Basement Parking', color: '#78716c' },
+  ];
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
@@ -16,13 +60,69 @@ const App = () => {
   const [edit, setEdit] = useState(null);
   const [status, setStatus] = useState('loading');
   const [loginError, setLoginError] = useState('');
+  const [loginSuccess, setLoginSuccess] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance' });
-  const [assignModal, setAssignModal] = useState(false);
-  const [assignTask, setAssignTask] = useState(null);
-  const [assignForm, setAssignForm] = useState({ assigneeName: '', assigneeEmail: '' });
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: 'backlog', category: 'maintenance', label: '', assignedEmails: [] });
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [assignEmailDropdown, setAssignEmailDropdown] = useState([]);
+  const [lightbox, setLightbox] = useState(null);
+  const [images, setImages] = useState({});   // { [taskId]: (string|null)[] } — 5-slot array
+  const [commentInputs, setCommentInputs] = useState({});  // { [taskId]: string }
+  const [mentionDropdown, setMentionDropdown] = useState({ taskId: null, suggestions: [], query: '' });
+  const [addContactInput, setAddContactInput] = useState('');
+  const [mentionEmailPool, setMentionEmailPool] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mentionEmailPool') || '[]'); } catch { return []; }
+  });
+  const fileRef0 = useRef(null);
+  const fileRef1 = useRef(null);
+  const fileRef2 = useRef(null);
+  const fileRef3 = useRef(null);
+  const fileRef4 = useRef(null);
+  const fileRefs = [fileRef0, fileRef1, fileRef2, fileRef3, fileRef4];
 
   const API_URL = '/api';
+
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) { reject(new Error('File must be an image')); return; }
+    if (file.size > 10 * 1024 * 1024) { reject(new Error('Image must be under 10 MB')); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX = 700;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.72), name: file.name });
+      };
+      img.onerror = () => reject(new Error('Could not read image — format may not be supported'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleImageSelect = async (e, slot) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { dataUrl, name } = await compressImage(file);
+      setForm(f => {
+        const imgs  = [...(f._images  || [null,null,null,null,null])];
+        const names = [...(f._imageNames || ['','','','',''])];
+        const rems  = [...(f._removeImages || [false,false,false,false,false])];
+        imgs[slot] = dataUrl; names[slot] = name; rems[slot] = false;
+        return { ...f, _images: imgs, _imageNames: names, _removeImages: rems };
+      });
+    } catch (err) { alert(err.message); }
+    e.target.value = '';
+  };
 
   const pri = { low: { c: '#10b981', b: '#d1fae5' }, medium: { c: '#f59e0b', b: '#fef3c7' }, high: { c: '#ef4444', b: '#fee2e2' }, critical: { c: '#dc2626', b: '#fee2e2' } };
   const cols = [{ id: 'backlog', t: 'Backlog', I: Circle }, { id: 'in-progress', t: 'In Progress', I: Clock }, { id: 'done', t: 'Done', I: CheckCircle2 }];
@@ -53,6 +153,38 @@ const App = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (searchQuery) params.set('q', searchQuery); else params.delete('q');
+    if (categoryFilter !== 'all') params.set('category', categoryFilter); else params.delete('category');
+    if (labelFilter !== 'all') params.set('label', labelFilter); else params.delete('label');
+    if (assignedFilter !== 'all') params.set('assigned', assignedFilter); else params.delete('assigned');
+    const qs = params.toString();
+    const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', newUrl);
+  }, [searchQuery, categoryFilter, labelFilter, assignedFilter, user]);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('share');
+    if (!token) return;
+    fetch(`/api/share?token=${encodeURIComponent(token)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.valid) {
+          setUser({ name: 'Viewer', role: 'viewer', username: 'viewer' });
+          const sp = new URLSearchParams(window.location.search);
+          if (sp.get('q')) setSearchQuery(sp.get('q'));
+          if (sp.get('category')) setCategoryFilter(sp.get('category'));
+          if (sp.get('label')) setLabelFilter(sp.get('label'));
+          if (sp.get('assigned')) setAssignedFilter(sp.get('assigned'));
+        }
+        else setViewerTokenError(data.error || 'This link is invalid or has expired.');
+      })
+      .catch(() => setViewerTokenError('Could not verify this link.'))
+      .finally(() => setViewerChecking(false));
+  }, []);
+
   const loadData = async (isInitial = false) => {
     try {
       setStatus('loading');
@@ -60,15 +192,25 @@ const App = () => {
       const tasksData = await tasksRes.json();
 
       if (tasksData && tasksData.length > 0) {
-        // KV has real tasks — always use them
         setTasks(tasksData);
+        // Fetch images for ALL tasks that have them — visible to every user
+        const withImages = tasksData.filter(t => t.imageCount > 0 || t.hasImage);
+        if (withImages.length > 0) {
+          const results = await Promise.allSettled(
+            withImages.map(t => fetch(`${API_URL}/images?id=${t.id}`).then(r => r.json()))
+          );
+          const imgMap = {};
+          withImages.forEach((t, i) => {
+            if (results[i].status === 'fulfilled' && Array.isArray(results[i].value?.images)) {
+              const slots = results[i].value.images;
+              if (slots.some(Boolean)) imgMap[t.id] = slots;
+            }
+          });
+          setImages(prev => ({ ...prev, ...imgMap }));
+        }
       } else if (isInitial) {
-        // Only load samples on FIRST load if KV is empty
-        // Do NOT save samples to KV — just show them locally
         setTasks(samples());
       }
-      // If not initial and KV returns empty — keep existing tasks in state
-      // This prevents auto-refresh from wiping user-added tasks
 
       const logsRes = await fetch(`${API_URL}/logs`);
       const logsData = await logsRes.json();
@@ -84,9 +226,17 @@ const App = () => {
   const saveTasks = async (tasksToSave) => {
     try {
       setStatus('syncing');
-      localStorage.setItem('tasks', JSON.stringify(tasksToSave));
+      const res = await fetch(`${API_URL}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tasks: tasksToSave }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
       setStatus('ready');
-    } catch (e) { console.error('Error saving tasks:', e); setStatus('error'); }
+    } catch (e) {
+      console.error('Error saving tasks:', e);
+      setStatus('error');
+      alert(`Failed to save: ${e.message}. Your changes are visible locally but may not persist after refresh.`);
+    }
   };
 
   const saveLogs = async (logsToSave) => {
@@ -95,15 +245,39 @@ const App = () => {
     } catch (e) { console.error('Error saving logs:', e); }
   };
 
+  const forgotPassword = async () => {
+    setLoginError('');
+    setLoginSuccess('');
+    if (!username.trim()) { setLoginError('Please enter your email.'); return; }
+    if (!password || password.length < 6) { setLoginError('New password must be at least 6 characters.'); return; }
+    if (password !== confirmPassword) { setLoginError('Passwords do not match.'); return; }
+    try {
+      const res = await fetch(`${API_URL}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset-password', email: username.toLowerCase().trim(), newPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setLoginError(data.error || 'Reset failed. Please try again.'); return; }
+      setIsForgotPassword(false);
+      setPassword('');
+      setConfirmPassword('');
+      setLoginSuccess('Password reset successfully. Please sign in.');
+    } catch {
+      setLoginError('Connection error. Please try again.');
+    }
+  };
+
   const login = async () => {
     setLoginError('');
+    setLoginSuccess('');
 
-    // ── Validation (no email format check) ──
-    if (!username.trim()) { setLoginError('Please enter your username.'); return; }
+    if (!username.trim()) { setLoginError('Please enter your email.'); return; }
     if (!password.trim()) { setLoginError('Please enter your password.'); return; }
 
     if (isRegistering) {
       if (!name.trim()) { setLoginError('Please enter your full name.'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username.trim())) { setLoginError('Please enter a valid email address.'); return; }
       if (password.length < 6) { setLoginError('Password must be at least 6 characters.'); return; }
       if (password !== confirmPassword) { setLoginError('Passwords do not match.'); return; }
     }
@@ -130,7 +304,6 @@ const App = () => {
       const loggedInUser = data.user;
       setUser(loggedInUser);
 
-      // Log the login/register action
       const existingLogsRes = await fetch(`${API_URL}/logs`);
       const existingLogs = await existingLogsRes.json() || [];
       const loginLog = {
@@ -151,7 +324,6 @@ const App = () => {
       setLoginError('Connection error. Please try again.');
     }
 
-    // Clear form fields
     setUsername('');
     setName('');
     setPassword('');
@@ -165,34 +337,157 @@ const App = () => {
       setUser(null);
       setTasks([]);
       setLogs([]);
+      setImages({});
       setUsername('');
       setName('');
       setPassword('');
       setConfirmPassword('');
       setLoginError('');
+      setLoginSuccess('');
       setIsRegistering(false);
+      setIsForgotPassword(false);
     }, 500);
   };
 
+  const generateShareLink = async () => {
+    setShareLinkLoading(true);
+    try {
+      const res = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (data.token) {
+        const filterParams = new URLSearchParams();
+        filterParams.set('share', data.token);
+        if (searchQuery) filterParams.set('q', searchQuery);
+        if (categoryFilter !== 'all') filterParams.set('category', categoryFilter);
+        if (labelFilter !== 'all') filterParams.set('label', labelFilter);
+        if (assignedFilter !== 'all') filterParams.set('assigned', assignedFilter);
+        setShareLink(`${window.location.origin}${window.location.pathname}?${filterParams.toString()}`);
+      }
+    } catch { alert('Failed to generate share link.'); }
+    setShareLinkLoading(false);
+  };
+
+  const revokeShareLink = async () => {
+    if (!shareLink) return;
+    const token = new URL(shareLink).searchParams.get('share');
+    if (!token) return;
+    await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token }) });
+    setShareLink('');
+  };
+
+  const loadShareTokens = async () => {
+    setShareTokensLoading(true);
+    try {
+      const res = await fetch('/api/share?action=list');
+      const data = await res.json();
+      setShareTokens(data.tokens || []);
+    } catch { setShareTokens([]); }
+    setShareTokensLoading(false);
+  };
+
+  const revokeShareToken = async (token) => {
+    await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revoke', token }) });
+    setShareTokens(prev => prev.filter(t => t.token !== token));
+  };
+
+  const BLANK_IMGS = { _images: [null,null,null,null,null], _imageNames: ['','','','',''], _removeImages: [false,false,false,false,false] };
+
   const open = (s = 'backlog', t = null) => {
-    if (t) { setEdit(t); setForm(t); } else { setEdit(null); setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance' }); }
+    if (t) {
+      const { image: _img, imageName: _name, ...taskFields } = t;
+      const assignedEmails = taskFields.assignedEmails?.length > 0
+        ? taskFields.assignedEmails
+        : (taskFields.assignedEmail ? [taskFields.assignedEmail] : []);
+      setEdit(t);
+      setNewEmailInput('');
+      setForm({ ...taskFields, assignedEmails, ...BLANK_IMGS });
+    } else {
+      setEdit(null);
+      setNewEmailInput('');
+      setForm({ title: '', description: '', priority: 'medium', dueDate: '', startDate: '', status: s, category: 'maintenance', label: '', assignedEmails: [], ...BLANK_IMGS });
+    }
     setModal(true);
   };
 
   const saveTask = async () => {
     if (!form.title || !form.dueDate) { alert('Fill Title and Due Date'); return; }
-    let updatedTasks, updatedLogs;
+
+    const { _images, _imageNames, _removeImages, image: _oi, imageName: _on, ...taskFields } = form;
+    const newImgs  = _images       || [null,null,null,null,null];
+    const newNames = _imageNames   || ['','','','',''];
+    const remImgs  = _removeImages || [false,false,false,false,false];
+
+    let updatedTasks, updatedLogs, taskId;
+
+    const countImages = (tid) => {
+      let c = 0;
+      for (let i = 0; i < 5; i++) {
+        const existing = !!(images[tid]?.[i]);
+        if (newImgs[i] || (!remImgs[i] && existing)) c++;
+      }
+      return c;
+    };
+
     if (edit) {
-      updatedTasks = tasks.map(t => t.id === edit.id ? { ...form, id: edit.id, lastModifiedBy: user.username } : t);
+      taskId = edit.id;
+      updatedTasks = tasks.map(t => t.id === taskId
+        ? { ...taskFields, id: taskId, imageCount: countImages(taskId), lastModifiedBy: user.username }
+        : t);
       updatedLogs = log('UPDATED', form.title, 'Task updated');
     } else {
-      const newTask = { ...form, id: Date.now(), createdAt: new Date().toISOString(), createdBy: user.username, createdByName: user.name };
-      updatedTasks = [...tasks, newTask];
+      taskId = Date.now();
+      const imageCount = newImgs.filter(Boolean).length;
+      updatedTasks = [...tasks, { ...taskFields, id: taskId, imageCount, createdAt: new Date().toISOString(), createdBy: user.username, createdByName: user.name }];
       updatedLogs = log('CREATED', form.title, `Priority: ${form.priority}`);
     }
+
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
+
+    // Auto-notify assigned emails
+    const assignedEmails = taskFields.assignedEmails || [];
+    let emailsToNotify = [];
+    if (!edit) {
+      emailsToNotify = assignedEmails;
+    } else {
+      const prevEmails = edit.assignedEmails || (edit.assignedEmail ? [edit.assignedEmail] : []);
+      emailsToNotify = assignedEmails.filter(e => !prevEmails.includes(e));
+    }
+    if (emailsToNotify.length > 0) {
+      const savedTask = updatedTasks.find(t => t.id === taskId);
+      // fire-and-forget so the modal closes immediately
+      fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails: emailsToNotify,
+          tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
+        }),
+      }).catch(e => console.error('Auto-notify failed:', e));
+    }
+
+    // Upload / remove each image slot independently in KV
+    const localSlots = [...(images[taskId] || [null,null,null,null,null])];
+    for (let i = 0; i < 5; i++) {
+      if (newImgs[i]) {
+        try {
+          const r = await fetch(`${API_URL}/images`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, index: i, dataUrl: newImgs[i], name: newNames[i] || '' }),
+          });
+          if (r.ok) localSlots[i] = newImgs[i];
+        } catch (e) { console.error(`Image slot ${i} upload failed:`, e); }
+      } else if (remImgs[i]) {
+        try {
+          await fetch(`${API_URL}/images?id=${taskId}&index=${i}`, { method: 'DELETE' });
+          localSlots[i] = null;
+        } catch (e) { console.error(`Image slot ${i} delete failed:`, e); }
+      }
+    }
+    if (localSlots.some(Boolean)) setImages(prev => ({ ...prev, [taskId]: localSlots }));
+    else setImages(prev => { const n = { ...prev }; delete n[taskId]; return n; });
+
     setModal(false);
   };
 
@@ -205,6 +500,123 @@ const App = () => {
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
+    if (t.imageCount > 0 || t.hasImage || t.image) {
+      try { await fetch(`${API_URL}/images?id=${id}`, { method: 'DELETE' }); } catch {}
+      setImages(prev => { const n = { ...prev }; delete n[id]; return n; });
+    }
+  };
+
+  const sendAlert = async (task) => {
+    const emails = task.assignedEmails?.length > 0
+      ? task.assignedEmails
+      : (task.assignedEmail ? [task.assignedEmail] : []);
+    if (emails.length === 0) { alert('No email assigned to this task.'); return; }
+    try {
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails,
+          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: task.comments || [] }],
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) alert(`✅ Alert sent to ${emails.join(', ')}`);
+      else alert(`❌ Failed: ${data.error}`);
+    } catch (err) { alert(`❌ Error: ${err.message}`); }
+  };
+
+  const addComment = async (taskId) => {
+    const text = (commentInputs[taskId] || '').trim();
+    if (!text) return;
+    const task = tasks.find(x => x.id === taskId);
+    if (!task) return;
+    const existing = task.comments || [];
+    if (existing.length >= 5) { alert('Maximum 5 comments per task.'); return; }
+    const comment = { id: Date.now(), text, timestamp: new Date().toISOString(), user: user.username, userName: user.name };
+    const updatedTasks = tasks.map(x => x.id === taskId ? { ...x, comments: [...existing, comment] } : x);
+    setTasks(updatedTasks);
+    setCommentInputs(prev => ({ ...prev, [taskId]: '' }));
+    setMentionDropdown({ taskId: null, suggestions: [] });
+    await saveTasks(updatedTasks);
+    const mentions = [...text.matchAll(/@([^\s@,;]+@[^\s@,;]+\.[^\s@,;]+)/g)].map(m => m[1]);
+    if (mentions.length > 0) {
+      setMentionEmailPool(prev => {
+        const merged = [...new Set([...prev, ...mentions])];
+        localStorage.setItem('mentionEmailPool', JSON.stringify(merged));
+        return merged;
+      });
+      const assigneeSet = new Set(task.assignedEmails || []);
+      const toEmails = mentions.filter(e => assigneeSet.has(e));
+      const finalTo = toEmails.length > 0 ? toEmails : [mentions[0]];
+      const finalCc = mentions.filter(e => !finalTo.includes(e));
+      fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emails: finalTo,
+          cc: finalCc.length > 0 ? finalCc : undefined,
+          message: `💬 ${user.name || user.username} mentioned you in a comment:\n\n"${text}"`,
+          tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: [...existing, comment] }]
+        })
+      }).catch(() => {});
+    }
+  };
+
+  const handleCommentInput = (taskId, value, assignedEmails) => {
+    setCommentInputs(prev => ({ ...prev, [taskId]: value }));
+    const lastAt = value.lastIndexOf('@');
+    if (lastAt >= 0) {
+      const afterAt = value.slice(lastAt + 1);
+      if (!afterAt.includes(' ') && !afterAt.includes(',')) {
+        const query = afterAt.toLowerCase();
+        const allEmails = [...new Set([...mentionEmailPool, ...(assignedEmails || []), ...tasks.flatMap(t => t.assignedEmails || [])])];
+        const suggestions = allEmails.filter(e => e.toLowerCase().includes(query));
+        setMentionDropdown({ taskId, suggestions, query: afterAt });
+      } else {
+        setMentionDropdown({ taskId: null, suggestions: [], query: '' });
+      }
+    } else {
+      setMentionDropdown({ taskId: null, suggestions: [], query: '' });
+    }
+  };
+
+  const addEmailToPool = (email) => {
+    const e = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return;
+    setMentionEmailPool(prev => {
+      if (prev.includes(e)) return prev;
+      const merged = [...prev, e];
+      localStorage.setItem('mentionEmailPool', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
+  const selectMention = (taskId, email) => {
+    const current = commentInputs[taskId] || '';
+    const lastAt = current.lastIndexOf('@');
+    const before = current.slice(0, lastAt);
+    const afterAt = current.slice(lastAt + 1);
+    const trailingText = afterAt.slice(afterAt.split(/[\s,;]/)[0].length);
+    setCommentInputs(prev => ({ ...prev, [taskId]: `${before}@${email} ${trailingText}` }));
+    setMentionDropdown({ taskId: null, suggestions: [] });
+  };
+
+  const renderCommentText = (text) => {
+    const parts = text.split(/(@[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+)/g);
+    return parts.map((part, i) =>
+      /^@[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(part)
+        ? <span key={i} style={{ color: '#2563eb', fontWeight: 700, background: '#eff6ff', borderRadius: '3px', padding: '0 2px' }}>{part}</span>
+        : <span key={i}>{part}</span>
+    );
+  };
+
+  const nextAthensId = () => {
+    const nums = tasks
+      .map(x => x.athensId && x.athensId.startsWith('ATHENS-') ? parseInt(x.athensId.slice(7), 10) : 0)
+      .filter(n => !isNaN(n));
+    const next = nums.length ? Math.max(...nums) + 1 : 1;
+    return `ATHENS-${String(next).padStart(4, '0')}`;
   };
 
   const move = async (id, ns) => {
@@ -214,7 +626,11 @@ const App = () => {
     const updatedTasks = tasks.map(x => {
       if (x.id === id) {
         const n = { ...x, status: ns };
-        if (ns === 'in-progress' && !x.startDate) { n.startDate = now.toISOString().split('T')[0]; n.startTime = now.toLocaleTimeString(); }
+        if (!x.athensId && (ns === 'in-progress' || ns === 'done')) n.athensId = nextAthensId();
+        if (ns === 'in-progress' && !x.startDate) {
+          n.startDate = now.toISOString().split('T')[0];
+          n.startTime = now.toLocaleTimeString();
+        }
         if (ns === 'done') { n.completionDate = now.toISOString().split('T')[0]; n.completionTime = now.toLocaleTimeString(); }
         return n;
       }
@@ -224,61 +640,6 @@ const App = () => {
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
     await saveLogs(updatedLogs);
-  };
-
-  const openAssignModal = (task) => {
-    setAssignTask(task);
-    setAssignForm({ assigneeName: task.assignedTo || '', assigneeEmail: task.assignedEmail || '' });
-    setAssignModal(true);
-  };
-
-  const sendAssignmentEmail = async () => {
-    if (!assignForm.assigneeName.trim() || !assignForm.assigneeEmail.trim()) {
-      alert('Please enter assignee name and email.'); return;
-    }
-    const task = assignTask;
-    const ticketNo = `ATH-${String(task.id).slice(-6)}`;
-    const subject = `[Athens Community] Task Assignment - ${ticketNo} | ${task.title}`;
-    const body = [
-      `Dear ${assignForm.assigneeName},`,
-      ``,
-      `You have been assigned a maintenance task by Athens Community Management.`,
-      ``,
-      `━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `TASK DETAILS`,
-      `━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `Ticket Number : ${ticketNo}`,
-      `Task          : ${task.title}`,
-      `Description   : ${task.description || 'N/A'}`,
-      `Priority      : ${task.priority.toUpperCase()}`,
-      `Category      : ${task.category}`,
-      `Due Date      : ${task.dueDate}`,
-      `━━━━━━━━━━━━━━━━━━━━━━━━`,
-      ``,
-      `ACTION REQUIRED:`,
-      `Please reply with Ticket Number to athens-ec@caaoa.in within 24 hours.`,
-      `Please attach pictures of the completed work or current progress when replying.`,
-      ``,
-      `Regards,`,
-      `Athens Community Management Team`,
-      `CAAOA – Casagrand Athens`,
-    ].join('\n');
-
-    // Save assignee info on task
-    const updatedTasks = tasks.map(t =>
-      t.id === task.id
-        ? { ...t, assignedTo: assignForm.assigneeName, assignedEmail: assignForm.assigneeEmail, assignedAt: new Date().toISOString(), assignedBy: user.username, ticketNo }
-        : t
-    );
-    const updatedLogs = log('ASSIGNED', task.title, `Assigned to ${assignForm.assigneeName} (${assignForm.assigneeEmail})`);
-    setTasks(updatedTasks);
-    await saveTasks(updatedTasks);
-    await saveLogs(updatedLogs);
-
-    // Open mail client
-    const mailtoLink = `mailto:${encodeURIComponent(assignForm.assigneeEmail)}?cc=athens-ec%40caaoa.in&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(mailtoLink, '_blank');
-    setAssignModal(false);
   };
 
   const clear = async () => {
@@ -292,7 +653,23 @@ const App = () => {
   };
 
   const exp = () => {
-    const td = tasks.map(t => ({ Title: t.title, Desc: t.description, Priority: t.priority, Status: t.status, Due: t.dueDate, Created: t.createdBy }));
+    const td = tasks.map(t => ({
+      'Athens ID': t.athensId || '',
+      Title: t.title,
+      Description: t.description,
+      Priority: t.priority,
+      Category: t.category,
+      Label: t.label || '',
+      Status: t.status,
+      'Due Date': t.dueDate,
+      'Start Date': t.startDate || '',
+      'Start Time': t.startTime || '',
+      'Completion Date': t.completionDate || '',
+      'Completion Time': t.completionTime || '',
+      'Created By': t.createdByName || t.createdBy,
+      'Assigned Emails': (t.assignedEmails?.length > 0 ? t.assignedEmails : (t.assignedEmail ? [t.assignedEmail] : [])).join(', '),
+      'Created At': t.createdAt ? new Date(t.createdAt).toLocaleString() : '',
+    }));
     const ld = logs.map(l => ({ Time: new Date(l.timestamp).toLocaleString(), User: l.userName, Action: l.action, Task: l.taskTitle, Details: l.details }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(td), 'Tasks');
@@ -302,7 +679,510 @@ const App = () => {
     saveLogs(updatedLogs);
   };
 
+  const exportPdf = async () => {
+    setPdfGenerating(true);
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = 210, pageH = 297, margin = 14, contentW = pageW - margin * 2;
+      let y = 0;
+
+      const checkPage = (needed = 20) => {
+        if (y + needed > pageH - margin) { doc.addPage(); y = margin; }
+      };
+
+      const hexToRgb = hex => {
+        const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+        return [r,g,b];
+      };
+
+      // ── Cover header ──────────────────────────────────────────────────────────
+      doc.setFillColor(102, 126, 234);
+      doc.rect(0, 0, pageW, 42, 'F');
+      doc.setFillColor(118, 75, 162);
+      doc.rect(0, 30, pageW, 12, 'F');
+      doc.setTextColor(255,255,255);
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(22);
+      doc.text('Athens Community', margin, 16);
+      doc.setFontSize(11);
+      doc.setFont('helvetica','normal');
+      doc.text('Facility Management Report', margin, 25);
+      doc.setFontSize(8);
+      doc.text(`Generated: ${new Date().toLocaleString()}  |  By: ${user.name}`, margin, 37);
+      y = 52;
+
+      // ── Summary boxes ─────────────────────────────────────────────────────────
+      const bkTasks = tasks.filter(t => t.status === 'backlog');
+      const ipTasks = tasks.filter(t => t.status === 'in-progress');
+      const dnTasks = tasks.filter(t => t.status === 'done');
+      const boxW = (contentW - 8) / 3;
+      const summaries = [
+        { label: 'Backlog', count: bkTasks.length, r:107,g:114,b:128 },
+        { label: 'In Progress', count: ipTasks.length, r:102,g:126,b:234 },
+        { label: 'Done', count: dnTasks.length, r:16,g:185,b:129 },
+      ];
+      summaries.forEach(({ label, count, r, g, b }, i) => {
+        const bx = margin + i * (boxW + 4);
+        doc.setFillColor(r,g,b);
+        doc.rect(bx, y, boxW, 18, 'F');
+        doc.setTextColor(255,255,255);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(18);
+        doc.text(String(count), bx + boxW/2, y + 11, { align:'center' });
+        doc.setFontSize(7);
+        doc.setFont('helvetica','normal');
+        doc.text(label, bx + boxW/2, y + 16, { align:'center' });
+      });
+      y += 26;
+
+      const pColors = { low:[16,185,129], medium:[245,158,11], high:[239,68,68], critical:[220,38,38] };
+      const sections = [
+        { label:'BACKLOG', tasks: bkTasks, hR:107,hG:114,hB:128 },
+        { label:'IN PROGRESS', tasks: ipTasks, hR:102,hG:126,hB:234 },
+        { label:'DONE', tasks: dnTasks, hR:16,hG:185,hB:129 },
+      ];
+
+      for (const section of sections) {
+        if (!section.tasks.length) continue;
+
+        checkPage(18);
+        // Section header bar
+        doc.setFillColor(section.hR, section.hG, section.hB);
+        doc.rect(margin, y, contentW, 9, 'F');
+        doc.setTextColor(255,255,255);
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(9);
+        doc.text(`${section.label}  (${section.tasks.length} task${section.tasks.length !== 1 ? 's' : ''})`, margin + 4, y + 6.2);
+        y += 13;
+
+        for (const task of section.tasks) {
+          const taskImgs = (() => {
+            const slots = Array.isArray(images[task.id])
+              ? images[task.id]
+              : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null);
+            return (slots || []).filter(Boolean);
+          })();
+
+          const descLines = task.description
+            ? doc.splitTextToSize(task.description, contentW - 14).slice(0,3)
+            : [];
+          const hasImgs = taskImgs.length > 0;
+          const imgH = hasImgs ? (taskImgs.length === 1 ? 58 : 45) : 0;
+          const commentLines = (task.comments || []).slice(0,3);
+          const cardH = 8 + (task.athensId ? 5 : 0) + 7 + (descLines.length * 4) + 7 + (hasImgs ? imgH + 4 : 0) + (commentLines.length * 8) + 5;
+
+          checkPage(cardH + 4);
+
+          // Card background + left priority stripe
+          const [pcR,pcG,pcB] = pColors[task.priority] || [107,114,128];
+          doc.setFillColor(249,250,251);
+          doc.setDrawColor(229,231,235);
+          doc.rect(margin, y, contentW, cardH, 'FD');
+          doc.setFillColor(pcR,pcG,pcB);
+          doc.rect(margin, y, 3.5, cardH, 'F');
+
+          let cy = y + 7;
+
+          // Title
+          doc.setTextColor(17,24,39);
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(10);
+          const titleLines = doc.splitTextToSize(task.title, contentW - 20);
+          doc.text(titleLines[0], margin + 7, cy);
+          cy += 5;
+
+          // Athens ID
+          if (task.athensId) {
+            doc.setFont('helvetica','normal');
+            doc.setFontSize(7);
+            doc.setTextColor(102,126,234);
+            doc.text(task.athensId, margin + 7, cy);
+            cy += 5;
+          }
+
+          // Priority / Category / Label badges
+          let bx = margin + 7;
+          const drawBadge = (text, bgR, bgG, bgB, fgR=255, fgG=255, fgB=255) => {
+            doc.setFont('helvetica','bold');
+            doc.setFontSize(6.5);
+            const tw = doc.getTextWidth(text);
+            const bw = tw + 5;
+            doc.setFillColor(bgR,bgG,bgB);
+            doc.roundedRect(bx, cy - 3, bw, 5, 1, 1, 'F');
+            doc.setTextColor(fgR,fgG,fgB);
+            doc.text(text, bx + 2.5, cy + 0.8);
+            bx += bw + 3;
+          };
+          drawBadge(task.priority.toUpperCase(), pcR, pcG, pcB);
+          drawBadge(task.category, 124, 58, 237);
+          if (task.label) {
+            const lm = LABELS.find(l => l.key === task.label);
+            if (lm) { const [lr,lg,lb] = hexToRgb(lm.color); drawBadge(lm.label, lr, lg, lb); }
+          }
+          cy += 7;
+
+          // Description
+          if (descLines.length) {
+            doc.setTextColor(107,114,128);
+            doc.setFont('helvetica','normal');
+            doc.setFontSize(7.5);
+            doc.text(descLines, margin + 7, cy);
+            cy += descLines.length * 4;
+          }
+
+          // Dates row
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(7);
+          doc.setTextColor(107,114,128);
+          let dateStr = `Due: ${task.dueDate}`;
+          if (task.startDate) dateStr += `   Started: ${task.startDate}`;
+          if (task.completionDate) dateStr += `   Completed: ${task.completionDate}`;
+          const taskEmails741 = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+          if (taskEmails741.length > 0) dateStr += `   Assigned: ${taskEmails741.join(', ')}`;
+          doc.text(dateStr, margin + 7, cy);
+          cy += 7;
+
+          // Images
+          if (hasImgs) {
+            const gap = 3;
+            const iw = taskImgs.length === 1 ? Math.min(contentW - 14, 90) : (contentW - 14 - gap * (taskImgs.length - 1)) / taskImgs.length;
+            let ix = margin + 7;
+            for (const src of taskImgs) {
+              try {
+                doc.addImage(src, 'JPEG', ix, cy, iw, imgH, undefined, 'FAST');
+              } catch(_) {}
+              ix += iw + gap;
+            }
+            cy += imgH + 4;
+          }
+
+          // Comments
+          if (commentLines.length) {
+            doc.setFont('helvetica','bold');
+            doc.setFontSize(6.5);
+            doc.setTextColor(55,65,81);
+            doc.text('Comments:', margin + 7, cy);
+            cy += 5;
+            commentLines.forEach(c => {
+              doc.setFont('helvetica','normal');
+              doc.setFontSize(6.5);
+              doc.setTextColor(75,85,99);
+              const cLines = doc.splitTextToSize(`${c.userName || c.user}: ${c.text}`, contentW - 18);
+              doc.text(cLines[0], margin + 9, cy);
+              cy += 4.5;
+            });
+          }
+
+          y += cardH + 3;
+        }
+        y += 5;
+      }
+
+      // Page numbers
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFont('helvetica','normal');
+        doc.setFontSize(7);
+        doc.setTextColor(156,163,175);
+        doc.text(`Athens Community Facility Tracker  •  Page ${p} of ${totalPages}`, pageW / 2, pageH - 6, { align:'center' });
+      }
+
+      doc.save(`Athens_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      const updatedLogs = log('EXPORTED', '', 'PDF report downloaded');
+      saveLogs(updatedLogs);
+    } catch (e) {
+      console.error('PDF export error:', e);
+      alert('PDF generation failed: ' + e.message);
+    }
+    setPdfGenerating(false);
+  };
+
+  const makeBacklogPdfBase64 = async (bkTasks) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = 210, pageH = 297, margin = 14, contentW = pageW - margin * 2;
+    let y = 0;
+    const checkPage = (needed = 20) => { if (y + needed > pageH - margin) { doc.addPage(); y = margin; } };
+    const hexToRgb = hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+
+    doc.setFillColor(102, 126, 234); doc.rect(0, 0, pageW, 42, 'F');
+    doc.setFillColor(118, 75, 162); doc.rect(0, 30, pageW, 12, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(22);
+    doc.text('Athens Community', margin, 16);
+    doc.setFontSize(11); doc.setFont('helvetica','normal');
+    doc.text('Backlog Tasks Report', margin, 25);
+    doc.setFontSize(8);
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  By: ${user.name}`, margin, 37);
+    y = 52;
+
+    doc.setFillColor(107, 114, 128); doc.rect(margin, y, contentW, 18, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(18);
+    doc.text(String(bkTasks.length), margin + contentW/2, y + 11, { align:'center' });
+    doc.setFontSize(7); doc.setFont('helvetica','normal');
+    doc.text('Backlog Tasks', margin + contentW/2, y + 16, { align:'center' });
+    y += 26;
+
+    const pColors = { low:[16,185,129], medium:[245,158,11], high:[239,68,68], critical:[220,38,38] };
+    checkPage(18);
+    doc.setFillColor(107, 114, 128); doc.rect(margin, y, contentW, 9, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text(`BACKLOG  (${bkTasks.length} task${bkTasks.length !== 1 ? 's' : ''})`, margin + 4, y + 6.2);
+    y += 13;
+
+    for (const task of bkTasks) {
+      const taskImgs = (() => {
+        const slots = Array.isArray(images[task.id]) ? images[task.id] : ((images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null);
+        return (slots || []).filter(Boolean);
+      })();
+      const descLines = task.description ? doc.splitTextToSize(task.description, contentW - 14).slice(0,3) : [];
+      const hasImgs = taskImgs.length > 0;
+      const imgH = hasImgs ? (taskImgs.length === 1 ? 58 : 45) : 0;
+      const commentLines = (task.comments || []).slice(0,3);
+      const cardH = 8 + (task.athensId ? 5 : 0) + 7 + (descLines.length * 4) + 7 + (hasImgs ? imgH + 4 : 0) + (commentLines.length * 8) + 5;
+      checkPage(cardH + 4);
+
+      const [pcR,pcG,pcB] = pColors[task.priority] || [107,114,128];
+      doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.rect(margin, y, contentW, cardH, 'FD');
+      doc.setFillColor(pcR,pcG,pcB); doc.rect(margin, y, 3.5, cardH, 'F');
+      let cy = y + 7;
+
+      doc.setTextColor(17,24,39); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(task.title, contentW - 20)[0], margin + 7, cy); cy += 5;
+      if (task.athensId) { doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(102,126,234); doc.text(task.athensId, margin + 7, cy); cy += 5; }
+
+      let bx = margin + 7;
+      const drawBadge = (text, bgR, bgG, bgB) => {
+        doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+        const bw = doc.getTextWidth(text) + 5;
+        doc.setFillColor(bgR,bgG,bgB); doc.roundedRect(bx, cy - 3, bw, 5, 1, 1, 'F');
+        doc.setTextColor(255,255,255); doc.text(text, bx + 2.5, cy + 0.8); bx += bw + 3;
+      };
+      drawBadge(task.priority.toUpperCase(), pcR, pcG, pcB);
+      drawBadge(task.category, 124, 58, 237);
+      if (task.label) { const lm = LABELS.find(l => l.key === task.label); if (lm) { const [lr,lg,lb] = hexToRgb(lm.color); drawBadge(lm.label, lr, lg, lb); } }
+      cy += 7;
+
+      if (descLines.length) { doc.setTextColor(107,114,128); doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.text(descLines, margin + 7, cy); cy += descLines.length * 4; }
+
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(107,114,128);
+      let dateStr = `Due: ${task.dueDate}`;
+      if (task.startDate) dateStr += `   Started: ${task.startDate}`;
+      const taskEmails870 = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+      if (taskEmails870.length > 0) dateStr += `   Assigned: ${taskEmails870.join(', ')}`;
+      doc.text(dateStr, margin + 7, cy); cy += 7;
+
+      if (hasImgs) {
+        const gap = 3;
+        const iw = taskImgs.length === 1 ? Math.min(contentW - 14, 90) : (contentW - 14 - gap * (taskImgs.length - 1)) / taskImgs.length;
+        let ix = margin + 7;
+        for (const src of taskImgs) { try { doc.addImage(src, 'JPEG', ix, cy, iw, imgH, undefined, 'FAST'); } catch(_) {} ix += iw + gap; }
+        cy += imgH + 4;
+      }
+
+      if (commentLines.length) {
+        doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(55,65,81); doc.text('Comments:', margin + 7, cy); cy += 5;
+        commentLines.forEach(c => { doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(75,85,99); doc.text(doc.splitTextToSize(`${c.userName || c.user}: ${c.text}`, contentW - 18)[0], margin + 9, cy); cy += 4.5; });
+      }
+      y += cardH + 3;
+    }
+
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p); doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(156,163,175);
+      doc.text(`Athens Community Facility Tracker  •  Page ${p} of ${totalPages}`, pageW / 2, pageH - 6, { align:'center' });
+    }
+    return doc.output('datauristring').split(',')[1];
+  };
+
+  const sendBacklogNotify = async () => {
+    const emailList = notifyEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('There are no backlog tasks to notify about.'); return; }
+    setNotifySending(true);
+    setNotifyResult(null);
+    try {
+      const tasksPayload = backlogTasks.map(t => ({
+        id: t.id, title: t.title, description: t.description,
+        priority: t.priority, category: t.category, label: t.label,
+        dueDate: t.dueDate, status: t.status, comments: t.comments || [],
+      }));
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: notifyMessage, tasks: tasksPayload }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotifyResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Backlog notification sent: ${data.taskCount} task(s) to ${emailList.length} recipient(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setNotifyResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setNotifyResult({ success: false, error: err.message });
+    }
+    setNotifySending(false);
+  };
+
+  const sendOverdueNotify = async (overdueTasks) => {
+    const emailList = overdueNotifyEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const toSend = overdueSelectedIds
+      ? overdueTasks.filter(t => overdueSelectedIds.has(t.id))
+      : overdueTasks;
+    if (toSend.length === 0) { alert('No overdue tasks selected to notify about.'); return; }
+    setOverdueNotifySending(true);
+    setOverdueNotifyResult(null);
+    try {
+      const tasksPayload = toSend.map(t => ({
+        id: t.id, title: t.title, description: t.description,
+        priority: t.priority, category: t.category, label: t.label,
+        dueDate: t.dueDate, status: t.status, comments: t.comments || [],
+      }));
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: overdueNotifyMessage, tasks: tasksPayload }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOverdueNotifyResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Overdue notification sent: ${data.taskCount} task(s) to ${emailList.length} recipient(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setOverdueNotifyResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setOverdueNotifyResult({ success: false, error: err.message });
+    }
+    setOverdueNotifySending(false);
+  };
+
+  const downloadBacklogPdf = async () => {
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('No backlog tasks to export.'); return; }
+    setPdfGenerating(true);
+    try {
+      const b64 = await makeBacklogPdfBase64(backlogTasks);
+      const link = document.createElement('a');
+      link.href = `data:application/pdf;base64,${b64}`;
+      link.download = `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      const updatedLogs = log('EXPORTED', '', 'Backlog PDF downloaded');
+      saveLogs(updatedLogs);
+    } catch (e) { alert('PDF generation failed: ' + e.message); }
+    setPdfGenerating(false);
+  };
+
+  const sendPdfMail = async () => {
+    const emailList = pdfMailEmails
+      .split(/[\n,;]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (emailList.length === 0) { alert('Please enter at least one valid email address.'); return; }
+    const backlogTasks = tasks.filter(t => t.status === 'backlog');
+    if (backlogTasks.length === 0) { alert('There are no backlog tasks to include.'); return; }
+    setPdfMailSending(true);
+    setPdfMailResult(null);
+    try {
+      const pdfBase64 = await makeBacklogPdfBase64(backlogTasks);
+      const res = await fetch(`${API_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: emailList, message: pdfMailMessage, pdfBase64, taskCount: backlogTasks.length }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPdfMailResult({ success: true, ...data });
+        const updatedLogs = log('NOTIFY', '', `Backlog PDF sent to ${emailList.length} recipient(s) — ${backlogTasks.length} task(s)`);
+        saveLogs(updatedLogs);
+      } else {
+        setPdfMailResult({ success: false, error: data.error || 'Unknown error' });
+      }
+    } catch (err) {
+      setPdfMailResult({ success: false, error: err.message });
+    }
+    setPdfMailSending(false);
+  };
+
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/users`);
+      const data = await res.json();
+      if (Array.isArray(data)) setUsersData(data);
+    } catch (e) { console.error('Error loading users:', e); }
+    setUsersLoading(false);
+  };
+
+  const removeUser = async (username, userName) => {
+    if (username === user.username) { alert('You cannot remove your own account.'); return; }
+    if (!confirm(`Remove "${userName}" (${username}) from the portal? They will no longer be able to log in.`)) return;
+    try {
+      const res = await fetch(`${API_URL}/users?username=${encodeURIComponent(username)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setUsersData(prev => prev.filter(u => u.username !== username));
+        const updatedLogs = log('SYSTEM', '', `User removed: ${username}`);
+        saveLogs(updatedLogs);
+      } else {
+        alert(data.error || 'Failed to remove user.');
+      }
+    } catch (e) { alert(`Error: ${e.message}`); }
+  };
+
   const stats = { t: tasks.length, o: tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'done').length, d: tasks.filter(t => t.status === 'done').length };
+
+  const categoryMeta = [
+    { key: 'maintenance',  label: 'Maintenance',   color: '#3b82f6' },
+    { key: 'pool',         label: 'Pool',           color: '#06b6d4' },
+    { key: 'landscaping',  label: 'Landscaping',    color: '#10b981' },
+    { key: 'security',     label: 'Security',       color: '#f59e0b' },
+    { key: 'cleaning',     label: 'Cleaning',       color: '#8b5cf6' },
+    { key: 'repairs',      label: 'Repairs',        color: '#ef4444' },
+    { key: 'electrical',   label: 'Electrical',     color: '#f97316' },
+    { key: 'plumbing',     label: 'Plumbing',       color: '#0ea5e9' },
+    { key: 'parking',      label: 'Parking',        color: '#6b7280' },
+    { key: 'gym',          label: 'Gym / Fitness',  color: '#ec4899' },
+    { key: 'common-areas', label: 'Common Areas',   color: '#14b8a6' },
+    { key: 'pest-control', label: 'Pest Control',   color: '#a16207' },
+    { key: 'elevators',    label: 'Elevators',      color: '#7c3aed' },
+    { key: 'admin',        label: 'Administration', color: '#64748b' },
+  ];
+  const catData = categoryMeta
+    .map(({ key, label, color }) => ({ label, color, count: tasks.filter(t => t.category === key).length }))
+    .filter(d => d.count > 0);
+  const maxCatCount = Math.max(...catData.map(d => d.count), 1);
+  const isViewer = user?.role === 'viewer';
+
+  if (viewerExited) return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif' }}>
+      <div style={{ textAlign: 'center', maxWidth: 360, padding: '2rem' }}>
+        <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg,#d4af37,#f0c93a)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: 28 }}>🏛️</div>
+        <div style={{ fontFamily: 'Playfair Display, serif', fontSize: '1.5rem', fontWeight: 700, color: '#f0c93a', marginBottom: '0.5rem' }}>Athens Community</div>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '1.5rem' }}>Viewer Session Ended</div>
+        <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.95rem', lineHeight: 1.7 }}>You have exited the shared view. Close this tab or contact an admin for a new link.</div>
+      </div>
+    </div>
+  );
+
+  if (viewerChecking) return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ width: 40, height: 40, border: '3px solid rgba(212,175,55,0.3)', borderTopColor: '#f0c93a', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+      <div style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'sans-serif', fontSize: '0.95rem', letterSpacing: '1px' }}>Verifying share link…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
   if (!user) return (
@@ -343,6 +1223,10 @@ const App = () => {
         @keyframes spin { to{transform:rotate(360deg)} }
         .switch-link { text-align:center; margin-top:20px; font-size:13px; color:rgba(255,255,255,0.3); }
         .switch-link button { background:none; border:none; color:#f0c93a; font-weight:600; cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:13px; text-decoration:underline; }
+        .forgot-link { text-align:right; margin-top:-10px; margin-bottom:16px; }
+        .forgot-link button { background:none; border:none; color:rgba(212,175,55,0.6); font-size:12px; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; }
+        .forgot-link button:hover { color:#f0c93a; }
+        .success-box { background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:3px; padding:10px 14px; margin-bottom:18px; font-size:13px; color:#6ee7b7; letter-spacing:0.3px; }
         .login-footer { text-align:center; margin-top:24px; font-size:11px; color:rgba(255,255,255,0.2); letter-spacing:1px; text-transform:uppercase; }
         .login-footer strong { color:rgba(212,175,55,0.4); }
       `}</style>
@@ -355,92 +1239,153 @@ const App = () => {
           </div>
 
           <div className="login-divider">
-            <span /><p>{isRegistering ? 'Register' : 'Sign In'}</p><span />
+            <span /><p>{isForgotPassword ? 'Reset Password' : isRegistering ? 'Register' : 'Sign In'}</p><span />
           </div>
 
+          {viewerTokenError && <div className="error-box">🔗 {viewerTokenError}</div>}
           {loginError && <div className="error-box">⚠ {loginError}</div>}
+          {loginSuccess && <div className="success-box">✓ {loginSuccess}</div>}
 
-          {isRegistering && (
-            <div className="info-box">
-              ℹ️ The first registered user becomes the <strong>Admin</strong>. Admins can delete and clear tasks.
-            </div>
-          )}
-
-          {isRegistering && (
-            <div className="field">
-              <label>Full Name</label>
-              <div className="field-wrap">
-                <input
-                  type="text"
-                  placeholder="Your full name"
-                  value={name}
-                  onChange={e => { setName(e.target.value); setLoginError(''); }}
-                  onKeyPress={e => e.key === 'Enter' && login()}
-                  autoFocus
-                />
+          {isForgotPassword ? (
+            <>
+              <div className="field">
+                <label>Email</label>
+                <div className="field-wrap">
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={username}
+                    onChange={e => { setUsername(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoFocus
+                    autoComplete="email"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+              <div className="field">
+                <label>New Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="has-toggle"
+                    placeholder="At least 6 characters"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoComplete="new-password"
+                  />
+                  <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
+                    {showPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Confirm New Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Confirm new password"
+                    value={confirmPassword}
+                    onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && forgotPassword()}
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+              <button className="submit-btn" onClick={forgotPassword}>Reset Password</button>
+              <div className="switch-link">
+                <button onClick={() => { setIsForgotPassword(false); setLoginError(''); setPassword(''); setConfirmPassword(''); setUsername(''); }}>
+                  Back to Sign In
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {isRegistering && (
+                <div className="field">
+                  <label>Full Name</label>
+                  <div className="field-wrap">
+                    <input
+                      type="text"
+                      placeholder="Your full name"
+                      value={name}
+                      onChange={e => { setName(e.target.value); setLoginError(''); }}
+                      onKeyPress={e => e.key === 'Enter' && login()}
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              )}
 
-          <div className="field">
-            <label>Username</label>
-            <div className="field-wrap">
-              <input
-                type="text"
-                placeholder="Enter your username"
-                value={username}
-                onChange={e => { setUsername(e.target.value); setLoginError(''); }}
-                onKeyPress={e => e.key === 'Enter' && login()}
-                autoFocus={!isRegistering}
-                autoComplete="username"
-              />
-            </div>
-          </div>
+              <div className="field">
+                <label>Email</label>
+                <div className="field-wrap">
+                  <input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={username}
+                    onChange={e => { setUsername(e.target.value); setLoginError(''); setLoginSuccess(''); }}
+                    onKeyPress={e => e.key === 'Enter' && login()}
+                    autoFocus={!isRegistering}
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
 
-          <div className="field">
-            <label>Password</label>
-            <div className="field-wrap">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                className="has-toggle"
-                placeholder="Enter your password"
-                value={password}
-                onChange={e => { setPassword(e.target.value); setLoginError(''); }}
-                onKeyPress={e => e.key === 'Enter' && login()}
-                autoComplete={isRegistering ? 'new-password' : 'current-password'}
-              />
-              <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
-                {showPassword ? '🙈' : '👁'}
+              <div className="field">
+                <label>Password</label>
+                <div className="field-wrap">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="has-toggle"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); setLoginError(''); }}
+                    onKeyPress={e => e.key === 'Enter' && login()}
+                    autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                  />
+                  <button type="button" className="toggle-btn" onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
+                    {showPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+
+              {!isRegistering && (
+                <div className="forgot-link">
+                  <button onClick={() => { setIsForgotPassword(true); setLoginError(''); setLoginSuccess(''); setPassword(''); setConfirmPassword(''); }}>
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
+              {isRegistering && (
+                <div className="field">
+                  <label>Confirm Password</label>
+                  <div className="field-wrap">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
+                      onKeyPress={e => e.key === 'Enter' && login()}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button className="submit-btn" onClick={login}>
+                {isRegistering ? 'Create Account' : 'Sign In'}
               </button>
-            </div>
-          </div>
 
-          {isRegistering && (
-            <div className="field">
-              <label>Confirm Password</label>
-              <div className="field-wrap">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChange={e => { setConfirmPassword(e.target.value); setLoginError(''); }}
-                  onKeyPress={e => e.key === 'Enter' && login()}
-                  autoComplete="new-password"
-                />
+              <div className="switch-link">
+                {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
+                <button onClick={() => { setIsRegistering(!isRegistering); setLoginError(''); setLoginSuccess(''); setPassword(''); setConfirmPassword(''); }}>
+                  {isRegistering ? 'Sign In' : 'Register'}
+                </button>
               </div>
-            </div>
+            </>
           )}
-
-          <button className="submit-btn" onClick={login}>
-            {isRegistering ? 'Create Account' : 'Sign In'}
-          </button>
-
-          <div className="switch-link">
-            {isRegistering ? 'Already have an account?' : "Don't have an account?"}{' '}
-            <button onClick={() => { setIsRegistering(!isRegistering); setLoginError(''); setPassword(''); setConfirmPassword(''); }}>
-              {isRegistering ? 'Sign In' : 'Register'}
-            </button>
-          </div>
 
           <div className="login-footer"><strong>CAAOA</strong> · Casagrand Athens</div>
         </div>
@@ -452,21 +1397,25 @@ const App = () => {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem' }}>
       <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
+
+        {/* ── Header & Stats ── */}
         <div style={{ background: 'white', borderRadius: '16px', padding: '2rem', marginBottom: '2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Facility Management</p></div>
+            <div><h1 style={{ margin: 0, fontSize: '2rem' }}>Athens Community</h1><p style={{ margin: 0, color: '#6b7280' }}>Tracker Facility Management</p></div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <div style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ padding: '0.75rem 1rem', background: isViewer ? '#374151' : '#667eea', color: 'white', borderRadius: '50px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <User size={16} />{user.name}
                 {user.role === 'admin' && <span style={{ background: '#fbbf24', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.25rem' }}>ADMIN</span>}
+                {isViewer && <span style={{ background: '#10b981', color: 'white', fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.25rem' }}>VIEW ONLY</span>}
               </div>
               <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
-              <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>
+              {user?.role === 'admin' && <button onClick={() => { setShareLink(''); setShareModal(true); }} style={{ padding: '0.75rem 1rem', background: 'white', color: '#10b981', border: '2px solid #10b981', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Share2 size={16} />Share</button>}
+              {user?.role === 'admin' && <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>}
               <button onClick={() => loadData(false)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
-              <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>
-              <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>
+              {!isViewer && <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>}
+              {!isViewer && <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>}
               {user.role === 'admin' && <button onClick={clear} style={{ padding: '0.75rem 1rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Trash2 size={16} />Clear</button>}
-              <button onClick={logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Logout</button>
+              <button onClick={isViewer ? () => { setViewerExited(true); setUser(null); window.history.replaceState({}, '', window.location.pathname); } : logout} style={{ padding: '0.75rem 1rem', background: '#6b7280', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>{isViewer ? 'Exit' : 'Logout'}</button>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', paddingTop: '1rem', borderTop: '2px solid #f3f4f6' }}>
@@ -476,6 +1425,758 @@ const App = () => {
           </div>
         </div>
 
+        {/* ── Tab Bar ── */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+          <button onClick={() => setActiveTab('dashboard')} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'dashboard' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'dashboard' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'dashboard' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <CheckCircle2 size={16} />Dashboard
+          </button>
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('admin'); loadShareTokens(); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'admin' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'admin' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'admin' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Shield size={16} />Admin Report
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('notify'); setNotifyResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'notify' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'notify' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'notify' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Mail size={16} />Notify Backlog
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('overdue'); setOverdueNotifyResult(null); setOverdueSelectedIds(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'overdue' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'overdue' ? '#ef4444' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'overdue' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Clock size={16} />Overdue Notify
+              {stats.o > 0 && <span style={{ background: '#ef4444', color: 'white', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 800, padding: '0.05rem 0.4rem', marginLeft: '0.1rem' }}>{stats.o}</span>}
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('pdfmail'); setPdfMailResult(null); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'pdfmail' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'pdfmail' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'pdfmail' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <FileText size={16} />Generate PDF &amp; Mail
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button onClick={() => { setActiveTab('users'); loadUsers(); }} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: activeTab === 'users' ? 'white' : 'rgba(255,255,255,0.25)', color: activeTab === 'users' ? '#667eea' : 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', boxShadow: activeTab === 'users' ? '0 2px 8px rgba(0,0,0,0.12)' : 'none', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <User size={16} />Users
+            </button>
+          )}
+        </div>
+
+        {/* ── Admin Report Tab ── */}
+        {activeTab === 'admin' && (
+          <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FileText size={22} color="white" />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>PDF Report</h2>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Download all tasks with images as a PDF document</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', margin: '2rem 0' }}>
+              {[
+                { label: 'Backlog', count: tasks.filter(t=>t.status==='backlog').length, color:'#6b7280', bg:'#f3f4f6' },
+                { label: 'In Progress', count: tasks.filter(t=>t.status==='in-progress').length, color:'#667eea', bg:'#ede9fe' },
+                { label: 'Done', count: tasks.filter(t=>t.status==='done').length, color:'#10b981', bg:'#d1fae5' },
+              ].map(({ label, count, color, bg }) => (
+                <div key={label} style={{ padding: '1.25rem', background: bg, borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '2.2rem', fontWeight: 800, color }}>{count}</div>
+                  <div style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 600 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: '#f9fafb', borderRadius: '12px', padding: '1.25rem', marginBottom: '2rem', border: '1px solid #e5e7eb' }}>
+              <div style={{ fontWeight: 700, color: '#374151', marginBottom: '0.5rem', fontSize: '0.9rem' }}>What's included in the PDF:</div>
+              <ul style={{ margin: 0, paddingLeft: '1.25rem', color: '#6b7280', fontSize: '0.875rem', lineHeight: '1.9' }}>
+                <li>Cover page with report summary (Backlog / In Progress / Done counts)</li>
+                <li>All tasks grouped by status with priority colour coding</li>
+                <li>Task details: title, ID, category, label, description, due dates</li>
+                <li>Embedded photos (up to 3 per task)</li>
+                <li>Comments (up to 3 per task)</li>
+                <li>Page numbers on every page</li>
+              </ul>
+            </div>
+
+            <button
+              onClick={exportPdf}
+              disabled={pdfGenerating || tasks.length === 0}
+              style={{ padding: '0.9rem 2.5rem', background: pdfGenerating ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: pdfGenerating || tasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+              <FileText size={18} />
+              {pdfGenerating ? 'Generating PDF…' : `Download PDF Report (${tasks.length} task${tasks.length !== 1 ? 's' : ''})`}
+            </button>
+            {tasks.length === 0 && <p style={{ marginTop: '0.75rem', color: '#9ca3af', fontSize: '0.8rem' }}>No tasks to export.</p>}
+
+            {/* ── Share Links Management ── */}
+            <div style={{ marginTop: '2.5rem', borderTop: '2px solid #f3f4f6', paddingTop: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#10b981,#059669)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Share2 size={18} color="white" />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#111827' }}>Active Share Links</h3>
+                    <p style={{ margin: 0, color: '#6b7280', fontSize: '0.8rem' }}>Read-only viewer links currently in use</p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={loadShareTokens} style={{ padding: '0.55rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <RefreshCw size={14} />Refresh
+                  </button>
+                  <button onClick={() => { setShareLink(''); setShareModal(true); }} style={{ padding: '0.55rem 1rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Share2 size={14} />New Link
+                  </button>
+                </div>
+              </div>
+
+              {shareTokensLoading ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>Loading…</div>
+              ) : shareTokens.length === 0 ? (
+                <div style={{ padding: '1.5rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>
+                  No active share links. Use the <strong>Share</strong> button in the header or <strong>New Link</strong> above to create one.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {shareTokens.map(({ token, createdAt }) => {
+                    const url = `${window.location.origin}${window.location.pathname}?share=${token}`;
+                    return (
+                      <div key={token} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#6b7280', marginBottom: '0.2rem' }}>Token: {token.slice(0, 12)}…</div>
+                          <div style={{ fontSize: '0.8rem', color: '#374151', wordBreak: 'break-all' }}>{url}</div>
+                          <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: '0.2rem' }}>Created: {new Date(createdAt).toLocaleString()}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                          <button onClick={() => navigator.clipboard.writeText(url)} style={{ padding: '0.4rem 0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <Copy size={12} />Copy
+                          </button>
+                          <button onClick={() => { if (window.confirm('Revoke this share link? Anyone using it will lose access immediately.')) revokeShareToken(token); }} style={{ padding: '0.4rem 0.75rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '6px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+                            Revoke
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Notify Backlog Tab ── */}
+        {activeTab === 'notify' && (() => {
+          const backlogTasks = tasks.filter(t => t.status === 'backlog');
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Mail size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Notify Backlog</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Send all backlog tasks to one or more recipients with a custom message</p>
+                </div>
+              </div>
+
+              {/* Backlog task preview */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Circle size={14} style={{ color: '#667eea' }} />
+                  Backlog Tasks ({backlogTasks.length})
+                </div>
+                {backlogTasks.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center' }}>
+                    No tasks currently in the backlog.
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {backlogTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      const taskImgs = (Array.isArray(images[t.id]) ? images[t.id] : (images[t.id] ? [images[t.id]] : [])).filter(Boolean);
+                      return (
+                        <div key={t.id} style={{ padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1 }}>{t.title}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                            <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                          </div>
+                          {taskImgs.length > 0 && (
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                              {taskImgs.map((img, i) => {
+                                const src = img.dataUrl || img;
+                                return <img key={i} src={src} alt={`photo ${i + 1}`} onClick={() => setLightbox(src)} style={{ width: '52px', height: '52px', borderRadius: '6px', objectFit: 'cover', border: '1px solid #e5e7eb', cursor: 'pointer' }} />;
+                              })}
+                              <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>{taskImgs.length} photo{taskImgs.length > 1 ? 's' : ''}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recipient email(s) */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={notifyEmails}
+                  onChange={e => setNotifyEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Custom message */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
+                </label>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
+                  <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#2563eb' }}>athens-ec@caaoa.in</a></strong>
+                </p>
+                <textarea
+                  value={notifyMessage}
+                  onChange={e => setNotifyMessage(e.target.value)}
+                  placeholder="Please review the outstanding backlog tasks and take action where necessary…"
+                  rows={4}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Result banner */}
+              {notifyResult && (
+                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: notifyResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${notifyResult.success ? '#6ee7b7' : '#fca5a5'}`, color: notifyResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {notifyResult.success
+                    ? `${notifyResult.sent} of ${notifyResult.total} emails sent — ${notifyResult.taskCount} task${notifyResult.taskCount !== 1 ? 's' : ''} × ${notifyResult.recipientCount} recipient${notifyResult.recipientCount !== 1 ? 's' : ''}.`
+                    : `Failed to send: ${notifyResult.error}`}
+                </div>
+              )}
+
+              <button
+                onClick={sendBacklogNotify}
+                disabled={notifySending || backlogTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: notifySending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: notifySending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+                <Send size={18} />
+                {notifySending ? 'Sending…' : `Send to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Overdue Notify Tab ── */}
+        {activeTab === 'overdue' && (() => {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const overdueTasks = tasks
+            .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate + 'T00:00:00') < today)
+            .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+          const selectedSet = overdueSelectedIds || new Set(overdueTasks.map(t => t.id));
+          const toggleTask = (id) => {
+            const next = new Set(selectedSet);
+            next.has(id) ? next.delete(id) : next.add(id);
+            setOverdueSelectedIds(next);
+          };
+          const toggleAll = () => {
+            if (selectedSet.size === overdueTasks.length) setOverdueSelectedIds(new Set());
+            else setOverdueSelectedIds(new Set(overdueTasks.map(t => t.id)));
+          };
+          const selectedCount = selectedSet.size;
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#ef4444,#dc2626)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Clock size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Notify Overdue Tasks</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Select overdue tasks and send email alerts to recipients in one click</p>
+                </div>
+              </div>
+
+              {/* Overdue task list */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Clock size={14} style={{ color: '#ef4444' }} />
+                    Overdue Tasks ({overdueTasks.length})
+                  </div>
+                  {overdueTasks.length > 0 && (
+                    <button onClick={toggleAll} style={{ background: 'none', border: 'none', color: '#667eea', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', padding: '0.2rem 0.5rem' }}>
+                      {selectedSet.size === overdueTasks.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </div>
+                {overdueTasks.length === 0 ? (
+                  <div style={{ padding: '2rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', color: '#065f46', fontSize: '0.9rem', textAlign: 'center', fontWeight: 600 }}>
+                    ✅ No overdue tasks — everything is on track!
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '380px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {overdueTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      const daysOverdue = Math.ceil((today - new Date(t.dueDate + 'T00:00:00')) / 86400000);
+                      const isSelected = selectedSet.has(t.id);
+                      return (
+                        <div key={t.id}
+                          onClick={() => toggleTask(t.id)}
+                          style={{ padding: '0.7rem 0.9rem', background: isSelected ? '#fef2f2' : '#f9fafb', border: `1px solid ${isSelected ? '#fca5a5' : '#e5e7eb'}`, borderLeft: `4px solid ${pc.c}`, borderRadius: '8px', cursor: 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleTask(t.id)} onClick={e => e.stopPropagation()} style={{ accentColor: '#ef4444', width: '16px', height: '16px', flexShrink: 0, cursor: 'pointer' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.875rem', color: '#111827' }}>{t.title}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                              <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#f3f4f6', color: '#6b7280', flexShrink: 0, textTransform: 'capitalize' }}>{t.status.replace('-', ' ')}</span>
+                            </div>
+                            {t.description && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</div>}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', flexShrink: 0 }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#ef4444', background: '#fee2e2', padding: '0.2rem 0.5rem', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                              ⚠️ {daysOverdue}d overdue
+                            </span>
+                            <span style={{ fontSize: '0.68rem', color: '#9ca3af' }}>{t.dueDate}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recipient emails */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={overdueNotifyEmails}
+                  onChange={e => setOverdueNotifyEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#ef4444'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Custom message */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included at the top of the email</span>
+                </label>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#374151' }}>
+                  <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#dc2626' }}>athens-ec@caaoa.in</a></strong>
+                </p>
+                <textarea
+                  value={overdueNotifyMessage}
+                  onChange={e => setOverdueNotifyMessage(e.target.value)}
+                  placeholder="These tasks are overdue and require immediate attention…"
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#ef4444'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {/* Result banner */}
+              {overdueNotifyResult && (
+                <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '1.25rem', background: overdueNotifyResult.success ? '#d1fae5' : '#fee2e2', border: `1px solid ${overdueNotifyResult.success ? '#6ee7b7' : '#fca5a5'}`, color: overdueNotifyResult.success ? '#065f46' : '#991b1b', fontSize: '0.875rem', fontWeight: 600 }}>
+                  {overdueNotifyResult.success
+                    ? `✅ ${overdueNotifyResult.sent} of ${overdueNotifyResult.total} emails sent — ${overdueNotifyResult.taskCount} task${overdueNotifyResult.taskCount !== 1 ? 's' : ''} × ${overdueNotifyResult.recipientCount} recipient${overdueNotifyResult.recipientCount !== 1 ? 's' : ''}.`
+                    : `Failed to send: ${overdueNotifyResult.error}`}
+                  {overdueNotifyResult.success && Array.isArray(overdueNotifyResult.results) && overdueNotifyResult.results.length > 0 && (
+                    <div style={{ marginTop: '0.75rem', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', background: 'white' }}>
+                      <div style={{ padding: '0.4rem 0.9rem', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Delivery Report</div>
+                      {overdueNotifyResult.results.map((r, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0.9rem', borderBottom: i < overdueNotifyResult.results.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                          <span>{r.status === 'sent' ? '✅' : '❌'}</span>
+                          <span style={{ fontSize: '0.8rem', color: '#374151', flex: 1 }}>{r.taskTitle}</span>
+                          <span style={{ fontSize: '0.75rem', color: '#6b7280', wordBreak: 'break-all' }}>{r.email}</span>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '20px', background: r.status === 'sent' ? '#d1fae5' : '#fee2e2', color: r.status === 'sent' ? '#065f46' : '#991b1b', flexShrink: 0 }}>
+                            {r.status === 'sent' ? 'Sent' : r.error || 'Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => sendOverdueNotify(overdueTasks)}
+                disabled={overdueNotifySending || selectedCount === 0 || overdueTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: overdueNotifySending ? '#9ca3af' : 'linear-gradient(135deg,#ef4444,#dc2626)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: overdueNotifySending || selectedCount === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(239,68,68,0.35)', transition: 'opacity 0.2s', opacity: overdueNotifySending || selectedCount === 0 ? 0.7 : 1 }}>
+                <Send size={18} />
+                {overdueNotifySending ? 'Sending…' : `Send Overdue Alerts (${selectedCount} task${selectedCount !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Generate PDF & Mail Tab ── */}
+        {activeTab === 'pdfmail' && (() => {
+          const backlogTasks = tasks.filter(t => t.status === 'backlog');
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.75rem' }}>
+                <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={22} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Generate PDF &amp; Mail</h2>
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Generate a backlog PDF report and send it to multiple recipients</p>
+                </div>
+              </div>
+
+              {/* Backlog task list */}
+              <div style={{ marginBottom: '1.75rem' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Circle size={14} style={{ color: '#667eea' }} />
+                  Backlog Tasks ({backlogTasks.length})
+                </div>
+                {backlogTasks.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px', color: '#9ca3af', fontSize: '0.875rem', textAlign: 'center' }}>
+                    No tasks currently in the backlog.
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '4px' }}>
+                    {backlogTasks.map(t => {
+                      const pc = pri[t.priority] || pri.medium;
+                      const lm = LABELS.find(l => l.key === t.label);
+                      return (
+                        <div key={t.id} style={{ padding: '0.6rem 0.9rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pc.c}`, borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827', flex: 1, minWidth: '120px' }}>{t.title}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: pc.b, color: pc.c, flexShrink: 0 }}>{t.priority.toUpperCase()}</span>
+                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed', flexShrink: 0 }}>{t.category}</span>
+                            {lm && <span style={{ padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, background: lm.color + '22', color: lm.color, flexShrink: 0 }}>{lm.label}</span>}
+                            <span style={{ fontSize: '0.7rem', color: '#9ca3af', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.2rem' }}><Calendar size={10} />{t.dueDate}</span>
+                          </div>
+                          {t.description && <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '0.3rem', paddingLeft: '0.1rem' }}>{t.description}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Download PDF button */}
+              <div style={{ marginBottom: '1.75rem', padding: '1.25rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px' }}>
+                <div style={{ fontWeight: 700, color: '#374151', marginBottom: '0.4rem', fontSize: '0.9rem' }}>Step 1 — Preview &amp; Download PDF</div>
+                <div style={{ fontSize: '0.825rem', color: '#6b7280', marginBottom: '0.9rem' }}>Generate the backlog PDF and download it locally to review before sending.</div>
+                <button
+                  onClick={downloadBacklogPdf}
+                  disabled={pdfGenerating || backlogTasks.length === 0}
+                  style={{ padding: '0.7rem 1.75rem', background: pdfGenerating ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.9rem', cursor: pdfGenerating || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Download size={16} />
+                  {pdfGenerating ? 'Generating…' : `Download PDF (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+                </button>
+              </div>
+
+              {/* Step 2: email */}
+              <div style={{ fontWeight: 700, color: '#374151', marginBottom: '1rem', fontSize: '0.9rem' }}>Step 2 — Send PDF to Recipients</div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Recipient Email(s)
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>separate multiple addresses with commas or new lines</span>
+                </label>
+                <textarea
+                  value={pdfMailEmails}
+                  onChange={e => setPdfMailEmails(e.target.value)}
+                  placeholder={'manager@example.com\ncommittee@example.com, vendor@example.com'}
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#374151', marginBottom: '0.5rem' }}>
+                  Message
+                  <span style={{ fontWeight: 400, color: '#9ca3af', marginLeft: '0.5rem' }}>optional note included in the email body</span>
+                </label>
+                <textarea
+                  value={pdfMailMessage}
+                  onChange={e => setPdfMailMessage(e.target.value)}
+                  placeholder="Please find the attached backlog report for your review…"
+                  rows={3}
+                  style={{ width: '100%', padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '10px', fontFamily: 'inherit', fontSize: '0.875rem', boxSizing: 'border-box', resize: 'vertical', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+                />
+              </div>
+
+              {pdfMailResult && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  {/* Summary banner */}
+                  <div style={{ padding: '0.9rem 1.1rem', borderRadius: '10px', marginBottom: '0.75rem', background: pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#d1fae5' : '#fef3c7') : '#fee2e2', border: `1px solid ${pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#6ee7b7' : '#fcd34d') : '#fca5a5'}`, color: pdfMailResult.success ? (pdfMailResult.sent === pdfMailResult.total ? '#065f46' : '#92400e') : '#991b1b', fontSize: '0.875rem', fontWeight: 700 }}>
+                    {pdfMailResult.success
+                      ? `${pdfMailResult.sent} of ${pdfMailResult.total} email${pdfMailResult.total !== 1 ? 's' : ''} delivered — ${pdfMailResult.taskCount} backlog task${pdfMailResult.taskCount !== 1 ? 's' : ''} included.`
+                      : `Failed to send: ${pdfMailResult.error}`}
+                  </div>
+                  {/* Per-recipient delivery breakdown */}
+                  {pdfMailResult.success && Array.isArray(pdfMailResult.results) && pdfMailResult.results.length > 0 && (
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: '10px', overflow: 'hidden' }}>
+                      <div style={{ padding: '0.6rem 1rem', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '0.78rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Delivery Report
+                      </div>
+                      {pdfMailResult.results.map((r, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', borderBottom: i < pdfMailResult.results.length - 1 ? '1px solid #f3f4f6' : 'none', background: 'white' }}>
+                          <span style={{ fontSize: '1rem', lineHeight: 1 }}>{r.status === 'sent' ? '✅' : '❌'}</span>
+                          <span style={{ flex: 1, fontSize: '0.875rem', color: '#111827', wordBreak: 'break-all' }}>{r.email}</span>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: '20px', flexShrink: 0, background: r.status === 'sent' ? '#d1fae5' : '#fee2e2', color: r.status === 'sent' ? '#065f46' : '#991b1b' }}>
+                            {r.status === 'sent' ? 'Delivered' : r.error || 'Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={sendPdfMail}
+                disabled={pdfMailSending || backlogTasks.length === 0}
+                style={{ padding: '0.9rem 2.5rem', background: pdfMailSending ? '#9ca3af' : 'linear-gradient(135deg,#667eea,#764ba2)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '1rem', cursor: pdfMailSending || backlogTasks.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem', boxShadow: '0 4px 14px rgba(102,126,234,0.4)', transition: 'opacity 0.2s' }}>
+                <Send size={18} />
+                {pdfMailSending ? 'Generating &amp; Sending…' : `Send PDF to Recipients (${backlogTasks.length} task${backlogTasks.length !== 1 ? 's' : ''})`}
+              </button>
+            </div>
+          );
+        })()}
+
+        {/* ── Users Tab ── */}
+        {activeTab === 'users' && (() => {
+          const now = new Date();
+          const getStatus = (lastSeen) => {
+            if (!lastSeen) return { label: 'Never logged in', dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
+            const mins = (now - new Date(lastSeen)) / 60000;
+            if (mins < 10) return { label: 'Online now', dot: '#10b981', bg: '#d1fae5', text: '#065f46' };
+            if (mins < 60 * 24) return { label: 'Active today', dot: '#f59e0b', bg: '#fef3c7', text: '#92400e' };
+            return { label: 'Inactive', dot: '#d1d5db', bg: '#f3f4f6', text: '#6b7280' };
+          };
+          const formatLastSeen = (lastSeen) => {
+            if (!lastSeen) return 'Never';
+            const d = new Date(lastSeen);
+            const mins = (now - d) / 60000;
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${Math.floor(mins)} min${Math.floor(mins) > 1 ? 's' : ''} ago`;
+            const hrs = mins / 60;
+            if (hrs < 24) return `${Math.floor(hrs)} hr${Math.floor(hrs) > 1 ? 's' : ''} ago`;
+            const days = hrs / 24;
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            if (days < 2) return `Yesterday at ${timeStr}`;
+            if (days < 7) return `${Math.floor(days)} days ago at ${timeStr}`;
+            return `${d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} at ${timeStr}`;
+          };
+          const online = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 10).length;
+          const activeToday = usersData.filter(u => u.lastSeen && (now - new Date(u.lastSeen)) / 60000 < 60 * 24).length;
+          const sorted = [...usersData].sort((a, b) => {
+            if (!a.lastSeen && !b.lastSeen) return 0;
+            if (!a.lastSeen) return 1;
+            if (!b.lastSeen) return -1;
+            return new Date(b.lastSeen) - new Date(a.lastSeen);
+          });
+          return (
+            <div style={{ background: 'white', borderRadius: '16px', padding: '2.5rem', marginBottom: '2rem' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#667eea,#764ba2)', borderRadius: '10px', padding: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <User size={22} color="white" />
+                  </div>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#111827' }}>Registered Users</h2>
+                    <p style={{ margin: 0, color: '#6b7280', fontSize: '0.875rem' }}>Manage who has access to the portal</p>
+                  </div>
+                </div>
+                <button onClick={loadUsers} disabled={usersLoading} style={{ padding: '0.6rem 1.25rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 700, fontSize: '0.875rem', cursor: usersLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <RefreshCw size={14} />{usersLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </div>
+
+              {/* Summary row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.75rem' }}>
+                {[
+                  { label: 'Total Users', count: usersData.length, color: '#667eea', bg: '#ede9fe' },
+                  { label: 'Online Now', count: online, color: '#10b981', bg: '#d1fae5' },
+                  { label: 'Active Today', count: activeToday, color: '#f59e0b', bg: '#fef3c7' },
+                  { label: 'Admins', count: usersData.filter(u => u.role === 'admin').length, color: '#7c3aed', bg: '#f5f3ff' },
+                ].map(({ label, count, color, bg }) => (
+                  <div key={label} style={{ padding: '1rem', background: bg, borderRadius: '12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color }}>{count}</div>
+                    <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* User list */}
+              {usersLoading ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af' }}>Loading users…</div>
+              ) : usersData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af', background: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
+                  No registered users found. Users will appear here after they log in for the first time.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {sorted.map((u, idx) => {
+                    const st = getStatus(u.lastSeen);
+                    const isSelf = u.username === user.username;
+                    const isAdmin = u.role === 'admin';
+                    return (
+                      <div key={u.username} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1.25rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', flexWrap: 'wrap' }}>
+                        {/* Rank */}
+                        <div style={{ width: '22px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#d1d5db', flexShrink: 0 }}>#{idx + 1}</div>
+
+                        {/* Avatar */}
+                        <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: isAdmin ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#667eea,#764ba2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'white', fontWeight: 700, fontSize: '1rem' }}>
+                          {(u.name || u.username).charAt(0).toUpperCase()}
+                        </div>
+
+                        {/* Name + email + joined */}
+                        <div style={{ flex: 1, minWidth: '140px' }}>
+                          <div style={{ fontWeight: 700, color: '#111827', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            {u.name || u.username}
+                            {isSelf && <span style={{ fontSize: '0.65rem', background: '#dbeafe', color: '#1e40af', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700 }}>YOU</span>}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.1rem' }}>{u.username}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.15rem' }}>Joined {u.createdAt ? new Date(u.createdAt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
+                        </div>
+
+                        {/* Role badge */}
+                        <span style={{ padding: '0.25rem 0.7rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, background: isAdmin ? '#fef3c7' : '#ede9fe', color: isAdmin ? '#92400e' : '#5b21b6', flexShrink: 0 }}>
+                          {u.role === 'admin' ? 'ADMIN' : 'MEMBER'}
+                        </span>
+
+                        {/* Last seen — detailed */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', flexShrink: 0, minWidth: '140px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.75rem', background: st.bg, borderRadius: '20px' }}>
+                            <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: st.text, whiteSpace: 'nowrap' }}>{st.label}</span>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#9ca3af', textAlign: 'right', paddingRight: '0.2rem' }}>
+                            {formatLastSeen(u.lastSeen)}
+                          </div>
+                        </div>
+
+                        {/* Remove button */}
+                        <button
+                          onClick={() => removeUser(u.username, u.name)}
+                          disabled={isSelf || isAdmin}
+                          title={isSelf ? 'Cannot remove your own account' : isAdmin ? 'Admin accounts cannot be removed' : `Remove ${u.name}`}
+                          style={{ padding: '0.4rem 0.9rem', background: isSelf || isAdmin ? '#f3f4f6' : '#fee2e2', color: isSelf || isAdmin ? '#d1d5db' : '#ef4444', border: `1px solid ${isSelf || isAdmin ? '#e5e7eb' : '#fca5a5'}`, borderRadius: '8px', fontWeight: 700, fontSize: '0.78rem', cursor: isSelf || isAdmin ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+                          <Trash2 size={13} />Remove
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p style={{ marginTop: '1.25rem', fontSize: '0.78rem', color: '#9ca3af' }}>
+                Note: Admin accounts cannot be removed. Users who registered before this feature was added will appear after their next login.
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* ── Tasks by Category Dashboard ── */}
+        {activeTab === 'dashboard' && <>
+        {catData.length > 0 && (
+          <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem 2rem', marginBottom: '2rem' }}>
+            <h2 style={{ margin: '0 0 1.25rem 0', fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Tasks by Category</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              {catData.map(({ label, color, count }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '90px', fontSize: '0.8rem', color: '#374151', textAlign: 'right', flexShrink: 0 }}>{label}</div>
+                  <div style={{ flex: 1, background: '#f3f4f6', borderRadius: '4px', height: '22px', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${(count / maxCatCount) * 100}%`,
+                      background: color,
+                      height: '100%',
+                      borderRadius: '4px',
+                      transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)',
+                      minWidth: '4px',
+                    }} />
+                  </div>
+                  <div style={{ width: '20px', fontSize: '0.85rem', fontWeight: 700, color: '#111827', flexShrink: 0 }}>{count}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Search Bar ── */}
+        <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by title, description, or Athens ID…"
+            style={{ width: '100%', padding: '0.55rem 2.4rem 0.55rem 2.4rem', borderRadius: '10px', border: '2px solid #e5e7eb', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
+            onFocus={e => { e.target.style.borderColor = '#667eea'; }}
+            onBlur={e => { e.target.style.borderColor = '#e5e7eb'; }}
+          />
+          <svg style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '0.1rem', display: 'flex', alignItems: 'center' }}>
+              <X size={15} />
+            </button>
+          )}
+        </div>
+
+        {/* ── Category Filter Bar ── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>CATEGORY</span>
+          <button onClick={() => setCategoryFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === 'all' ? '#667eea' : '#e5e7eb', background: categoryFilter === 'all' ? '#667eea' : 'white', color: categoryFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+          {categoryMeta.filter(({ key }) => tasks.some(t => t.category === key)).map(({ key, label, color }) => (
+            <button key={key} onClick={() => setCategoryFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: categoryFilter === key ? color : '#e5e7eb', background: categoryFilter === key ? color : 'white', color: categoryFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
+          ))}
+        </div>
+
+        {/* ── Label Filter Bar ── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.4rem' }}>
+          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>LABEL</span>
+          <button onClick={() => setLabelFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === 'all' ? '#374151' : '#e5e7eb', background: labelFilter === 'all' ? '#374151' : 'white', color: labelFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+          {LABELS.filter(({ key }) => tasks.some(t => t.label === key)).map(({ key, label, color }) => (
+            <button key={key} onClick={() => setLabelFilter(k => k === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: labelFilter === key ? color : '#e5e7eb', background: labelFilter === key ? color : 'white', color: labelFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{label}</button>
+          ))}
+        </div>
+
+        {/* ── Assigned-to Filter Bar ── */}
+        {(() => {
+          const uniqueUsers = [];
+          const seen = new Set();
+          tasks.forEach(t => {
+            const key = t.createdBy;
+            if (key && !seen.has(key)) { seen.add(key); uniqueUsers.push({ key, name: t.createdByName || t.createdBy }); }
+          });
+          if (!uniqueUsers.length) return null;
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9ca3af', alignSelf: 'center', marginRight: '0.25rem' }}>CREATED BY</span>
+              <button onClick={() => setAssignedFilter('all')} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: assignedFilter === 'all' ? '#10b981' : '#e5e7eb', background: assignedFilter === 'all' ? '#10b981' : 'white', color: assignedFilter === 'all' ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>All</button>
+              {uniqueUsers.map(({ key, name }) => (
+                <button key={key} onClick={() => setAssignedFilter(f => f === key ? 'all' : key)} style={{ padding: '0.35rem 0.9rem', borderRadius: '20px', border: '2px solid', borderColor: assignedFilter === key ? '#10b981' : '#e5e7eb', background: assignedFilter === key ? '#10b981' : 'white', color: assignedFilter === key ? 'white' : '#6b7280', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s' }}>{name}</button>
+              ))}
+            </div>
+          );
+        })()}
+
+
+        {/* ── Kanban Board ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
           {cols.map(col => {
             const Icon = col.I;
@@ -483,10 +2184,10 @@ const App = () => {
               <div key={col.id} style={{ background: 'white', borderRadius: '16px', padding: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '2px solid #f3f4f6' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Icon size={24} style={{ color: '#667eea' }} /><h3 style={{ margin: 0 }}>{col.t}</h3></div>
-                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id).length}</div>
+                  <div style={{ background: '#667eea', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '20px', fontWeight: 700 }}>{tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter) && (assignedFilter === 'all' || t.createdBy === assignedFilter) && (!searchQuery || [t.title, t.description, t.athensId].some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))).length}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: '200px', marginBottom: '1rem' }}>
-                  {tasks.filter(t => t.status === col.id).map(task => {
+                  {tasks.filter(t => t.status === col.id && (categoryFilter === 'all' || t.category === categoryFilter) && (labelFilter === 'all' || t.label === labelFilter) && (assignedFilter === 'all' || t.createdBy === assignedFilter) && (!searchQuery || [t.title, t.description, t.athensId].some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))).map(task => {
                     const today = new Date(); today.setHours(0, 0, 0, 0);
                     const dueDate = new Date(task.dueDate); dueDate.setHours(0, 0, 0, 0);
                     const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
@@ -499,18 +2200,53 @@ const App = () => {
                     else if (daysUntilDue > 1) dueDateDisplay = `${daysUntilDue} days remaining`;
                     return (
                       <div key={task.id} style={{ background: 'white', borderRadius: '8px', padding: '1rem', border: '1px solid #e5e7eb', borderLeft: `4px solid ${pri[task.priority].c}` }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                           <div style={{ fontWeight: 700, flex: 1 }}>{task.title}</div>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }} title="Edit"><Edit2 size={16} /></button>
-                            <button onClick={() => openAssignModal(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.assignedTo ? '#667eea' : '#9ca3af' }} title="Assign & Email"><Mail size={16} /></button>
-                            {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }} title="Delete"><Trash2 size={16} /></button>}
+                            {!isViewer && <button onClick={() => open(task.status, task)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Edit2 size={16} /></button>}
+                            {(task.assignedEmails?.length > 0 || task.assignedEmail) && task.status !== 'done' && !isViewer && <button onClick={() => sendAlert(task)} title={`Send alert to assigned recipients`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#667eea' }}><Send size={16} /></button>}
+                            {user.role === 'admin' && <button onClick={() => del(task.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}><Trash2 size={16} /></button>}
                           </div>
                         </div>
-                        <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{task.description}</div>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        {task.athensId && <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#667eea', marginBottom: '0.35rem', letterSpacing: '0.03em' }}>{task.athensId}</div>}
+                        <div style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>{task.description}</div>
+                        {(() => {
+                          const emails = task.assignedEmails?.length > 0 ? task.assignedEmails : (task.assignedEmail ? [task.assignedEmail] : []);
+                          return emails.length > 0 ? (
+                            <div style={{ marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              {emails.map((em, i) => (
+                                <div key={i} style={{ fontSize: '0.73rem', color: '#667eea', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={11} />{em}</div>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()}
+                        {(() => {
+                          // Support both new (array) and old (string) image formats
+                          const slots = Array.isArray(images[task.id])
+                            ? images[task.id]
+                            : (images[task.id] || task.image) ? [images[task.id] || task.image, null, null, null, null] : null;
+                          const visible = slots?.filter(Boolean);
+                          if (!visible?.length) return null;
+                          return (
+                            <div style={{ display: 'grid', gridTemplateColumns: visible.length === 1 ? '1fr' : visible.length === 2 ? '1fr 1fr' : 'repeat(3, 1fr)', gap: '4px', marginBottom: '0.75rem' }}>
+                              {visible.map((src, idx) => (
+                                <div key={idx} style={{ position: 'relative', cursor: 'pointer', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e5e7eb' }}
+                                  onClick={() => setLightbox({ src, title: task.title, all: visible, idx })}>
+                                  <img src={src} alt={`photo ${idx+1}`} style={{ width: '100%', height: visible.length === 1 ? '120px' : '80px', objectFit: 'cover', display: 'block' }} />
+                                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.3)'; e.currentTarget.querySelector('svg').style.opacity='1'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.querySelector('svg').style.opacity='0'; }}>
+                                    <ZoomIn size={20} style={{ color: 'white', opacity: 0, transition: 'opacity 0.2s' }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: pri[task.priority].b, color: pri[task.priority].c }}>{task.priority.toUpperCase()}</span>
                           <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: '#ede9fe', color: '#7c3aed' }}>{task.category}</span>
+                          {task.label && (() => { const lm = LABELS.find(l => l.key === task.label); return lm ? <span style={{ padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: lm.color + '22', color: lm.color }}>{lm.label}</span> : null; })()}
                         </div>
                         <div style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.5rem' }}><Calendar size={12} style={{ display: 'inline', marginRight: '0.25rem' }} />Due: {task.dueDate}</div>
                         {dueDateDisplay && (
@@ -520,101 +2256,295 @@ const App = () => {
                         )}
                         {task.startDate && <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f0fdf4', borderRadius: '4px', marginBottom: '0.5rem', border: '1px solid #bbf7d0' }}><Clock size={10} style={{ display: 'inline', marginRight: '0.25rem', color: '#10b981' }} />Started: {task.startDate}{task.startTime && ` at ${task.startTime}`}</div>}
                         {task.completionDate && <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f0fdf4', borderRadius: '4px', marginBottom: '0.5rem', border: '1px solid #bbf7d0' }}><CheckCircle2 size={10} style={{ display: 'inline', marginRight: '0.25rem', color: '#10b981' }} />Completed: {task.completionDate}{task.completionTime && ` at ${task.completionTime}`}</div>}
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f9fafb', borderRadius: '4px', marginBottom: '0.5rem' }}><User size={10} style={{ display: 'inline', marginRight: '0.25rem' }} />By: {task.createdByName || task.createdBy}</div>
-                        {task.assignedTo && (
-                          <div style={{ fontSize: '0.75rem', padding: '0.5rem', background: '#eff6ff', borderRadius: '4px', marginBottom: '0.75rem', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                            <Mail size={10} style={{ color: '#3b82f6', flexShrink: 0 }} />
-                            <span style={{ color: '#1d4ed8', fontWeight: 600 }}>Assigned:</span>
-                            <span style={{ color: '#3b82f6' }}>{task.assignedTo}</span>
-                            <span style={{ color: '#93c5fd' }}>·</span>
-                            <span style={{ color: '#6b7280', fontFamily: 'monospace', fontSize: '0.7rem' }}>{task.ticketNo}</span>
-                            <Paperclip size={9} style={{ color: '#9ca3af', marginLeft: 'auto' }} />
-                            <span style={{ color: '#9ca3af', fontSize: '0.7rem' }}>Reply with pics</span>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280', padding: '0.5rem', background: '#f9fafb', borderRadius: '4px', marginBottom: '0.75rem' }}><User size={10} style={{ display: 'inline', marginRight: '0.25rem' }} />By: {task.createdByName || task.createdBy}</div>
+                        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '0.75rem', marginBottom: '0.75rem' }}>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <MessageSquare size={12} />Comments ({(task.comments || []).length}/5)
                           </div>
-                        )}
-                        {task.status !== 'done' && (
+                          {(task.comments || []).map(c => (
+                            <div key={c.id} style={{ fontSize: '0.75rem', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '0.5rem', marginBottom: '0.4rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                                <span style={{ fontWeight: 600, color: '#374151' }}>{c.userName || c.user}</span>
+                                <span style={{ color: '#9ca3af' }}>{new Date(c.timestamp).toLocaleString()}</span>
+                              </div>
+                              <div style={{ color: '#4b5563' }}>{renderCommentText(c.text)}</div>
+                            </div>
+                          ))}
+                          {(task.comments || []).length < 5 && !isViewer && (
+                            <div style={{ position: 'relative', marginTop: '0.4rem' }}>
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                <input
+                                  value={commentInputs[task.id] || ''}
+                                  onChange={e => handleCommentInput(task.id, e.target.value, task.assignedEmails)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Escape') setMentionDropdown({ taskId: null, suggestions: [] });
+                                    if (e.key === 'Enter' && mentionDropdown.taskId !== task.id) addComment(task.id);
+                                  }}
+                                  placeholder="Add a comment… type @ to mention"
+                                  style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none' }}
+                                />
+                                <button onClick={() => addComment(task.id)} style={{ padding: '0.4rem 0.6rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Post</button>
+                              </div>
+                              {mentionDropdown.taskId === task.id && (
+                                <div style={{ position: 'absolute', bottom: '110%', left: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, minWidth: '260px', overflow: 'hidden' }}>
+                                  <div style={{ padding: '0.35rem 0.7rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tag person</div>
+                                  {mentionDropdown.suggestions.map(email => (
+                                    <div
+                                      key={email}
+                                      onMouseDown={e => { e.preventDefault(); selectMention(task.id, email); }}
+                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'white' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                    >
+                                      <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>@</span>{email}
+                                    </div>
+                                  ))}
+                                  {mentionDropdown.suggestions.length === 0 && mentionDropdown.query && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mentionDropdown.query) && (
+                                    <div
+                                      onMouseDown={e => { e.preventDefault(); addEmailToPool(mentionDropdown.query); selectMention(task.id, mentionDropdown.query); }}
+                                      style={{ padding: '0.45rem 0.75rem', fontSize: '0.78rem', cursor: 'pointer', color: '#059669', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'white' }}
+                                      onMouseEnter={e => e.currentTarget.style.background = '#ecfdf5'}
+                                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                    >
+                                      + Add "{mentionDropdown.query}" to contacts
+                                    </div>
+                                  )}
+                                  {mentionDropdown.suggestions.length === 0 && !mentionDropdown.query && (
+                                    <div style={{ padding: '0.6rem 0.75rem', borderBottom: '1px solid #f3f4f6' }}>
+                                      <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginBottom: '0.4rem' }}>No contacts yet. Add one:</div>
+                                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                        <input
+                                          value={addContactInput}
+                                          onChange={e => setAddContactInput(e.target.value)}
+                                          onMouseDown={e => e.stopPropagation()}
+                                          placeholder="email@example.com"
+                                          style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.75rem', border: '1px solid #d1d5db', borderRadius: '5px', outline: 'none' }}
+                                        />
+                                        <button
+                                          onMouseDown={e => { e.preventDefault(); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addContactInput.trim())) { addEmailToPool(addContactInput.trim()); setAddContactInput(''); handleCommentInput(task.id, commentInputs[task.id] || '', task.assignedEmails); } }}
+                                          style={{ padding: '0.3rem 0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 }}
+                                        >Add</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {mentionDropdown.suggestions.length === 0 && mentionDropdown.query && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mentionDropdown.query) && (
+                                    <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: '#9ca3af' }}>No contacts match. Type a full email to add.</div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {!isViewer && task.status !== 'done' && (
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
                             {task.status === 'backlog' && <button onClick={() => move(task.id, 'in-progress')} style={{ flex: 1, padding: '0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Start</button>}
                             {task.status === 'in-progress' && <><button onClick={() => move(task.id, 'backlog')} style={{ flex: 1, padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Back</button><button onClick={() => move(task.id, 'done')} style={{ flex: 1, padding: '0.5rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Done</button></>}
                           </div>
                         )}
-                        {task.status === 'done' && <button onClick={() => move(task.id, 'in-progress')} style={{ width: '100%', padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Reopen</button>}
+                        {!isViewer && task.status === 'done' && <button onClick={() => move(task.id, 'in-progress')} style={{ width: '100%', padding: '0.5rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>Reopen</button>}
                       </div>
                     );
                   })}
                 </div>
-                <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>
+                {!isViewer && <button onClick={() => open(col.id)} style={{ width: '100%', padding: '0.75rem', border: '2px dashed #d1d5db', background: 'transparent', borderRadius: '8px', color: '#9ca3af', fontWeight: 600, cursor: 'pointer' }}>+ Add to {col.t}</button>}
               </div>
             );
           })}
         </div>
+        </>}
       </div>
 
-      {modal && (
-        <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem' }}>
-            <h3 style={{ marginBottom: '1rem' }}>{edit ? 'Edit' : 'Add'} Task</h3>
-            <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
-            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-            <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="maintenance">Maintenance</option><option value="landscaping">Landscaping</option><option value="pool">Pool</option><option value="security">Security</option><option value="cleaning">Cleaning</option><option value="repairs">Repairs</option></select>
-            <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+      {shareModal && (
+        <div onClick={() => setShareModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '480px', padding: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Share2 size={20} color="#10b981" />
+                <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Share Dashboard</h3>
+              </div>
+              <button onClick={() => setShareModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={20} /></button>
             </div>
+            <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+              Generate a read-only link that lets anyone view the dashboard without logging in. They cannot add, edit, or delete tasks.
+            </p>
+            {!shareLink ? (
+              <button onClick={generateShareLink} disabled={shareLinkLoading} style={{ width: '100%', padding: '0.85rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.95rem', cursor: shareLinkLoading ? 'not-allowed' : 'pointer', opacity: shareLinkLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                <Share2 size={16} />{shareLinkLoading ? 'Generating…' : 'Generate Share Link'}
+              </button>
+            ) : (
+              <>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ flex: 1, fontSize: '0.8rem', color: '#374151', wordBreak: 'break-all', fontFamily: 'monospace' }}>{shareLink}</div>
+                  <button onClick={() => { navigator.clipboard.writeText(shareLink); setShareCopied(true); setTimeout(() => setShareCopied(false), 2000); }} style={{ background: shareCopied ? '#10b981' : '#667eea', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
+                    {shareCopied ? <><Check size={13} />Copied!</> : <><Copy size={13} />Copy</>}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button onClick={generateShareLink} disabled={shareLinkLoading} style={{ flex: 1, padding: '0.65rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                    {shareLinkLoading ? 'Generating…' : 'New Link'}
+                  </button>
+                  <button onClick={revokeShareLink} style={{ flex: 1, padding: '0.65rem', background: 'white', color: '#ef4444', border: '2px solid #ef4444', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                    Revoke Link
+                  </button>
+                </div>
+                <p style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: '0.75rem', textAlign: 'center' }}>Revoking invalidates the current link immediately.</p>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {assignModal && assignTask && (
-        <div onClick={() => setAssignModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '520px', padding: '2rem', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
-              <div style={{ background: '#eff6ff', borderRadius: '50%', padding: '0.6rem', display: 'flex' }}><Mail size={22} color="#3b82f6" /></div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Assign Task & Send Email</h3>
-                <p style={{ margin: 0, color: '#6b7280', fontSize: '0.8rem' }}>An email will open in your mail client</p>
+      {modal && (
+        <div onClick={() => setModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, overflowY: 'auto', padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', padding: '2rem', margin: 'auto' }}>
+            <h3 style={{ marginBottom: '1rem' }}>{edit ? 'Edit' : 'Add'} Task</h3>
+            <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Title" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Description" rows="3" style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
+            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}>
+              {categoryMeta.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            <select value={form.label || ''} onChange={e => setForm({ ...form, label: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px' }}>
+              <option value="">-- No Label --</option>
+              {LABELS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email(s) <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — receives overdue alerts)</span></div>
+              {(form.assignedEmails || []).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  {(form.assignedEmails || []).map((em, i) => (
+                    <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '20px', padding: '0.2rem 0.5rem 0.2rem 0.75rem', fontSize: '0.78rem', fontWeight: 600 }}>
+                      {em}
+                      <button type="button" onClick={() => setForm(f => ({ ...f, assignedEmails: f.assignedEmails.filter((_, j) => j !== i) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', padding: 0, lineHeight: 1 }}><X size={12} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="email"
+                    value={newEmailInput}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setNewEmailInput(val);
+                      const q = val.trim().toLowerCase();
+                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                      const filtered = pool.filter(em => em.includes(q) && !(form.assignedEmails || []).includes(em));
+                      setAssignEmailDropdown(q.length > 0 ? filtered : pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                    }}
+                    onFocus={() => {
+                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                      setAssignEmailDropdown(pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                    }}
+                    onBlur={() => setTimeout(() => setAssignEmailDropdown([]), 150)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const em = newEmailInput.trim().toLowerCase();
+                        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
+                          setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                          addEmailToPool(em);
+                          setNewEmailInput('');
+                          setAssignEmailDropdown([]);
+                        }
+                      }
+                      if (e.key === 'Escape') setAssignEmailDropdown([]);
+                    }}
+                    placeholder="e.g. manager@example.com"
+                    style={{ flex: 1, padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.875rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const em = newEmailInput.trim().toLowerCase();
+                      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
+                        setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                        addEmailToPool(em);
+                        setNewEmailInput('');
+                        setAssignEmailDropdown([]);
+                      } else if (newEmailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailInput.trim())) {
+                        alert('Please enter a valid email address.');
+                      }
+                    }}
+                    style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}
+                  >
+                    <Plus size={14} />Add
+                  </button>
+                </div>
+                {assignEmailDropdown.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, marginTop: '4px', overflow: 'hidden', maxHeight: '180px', overflowY: 'auto' }}>
+                    <div style={{ padding: '0.3rem 0.7rem', fontSize: '0.68rem', fontWeight: 700, color: '#9ca3af', borderBottom: '1px solid #f3f4f6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saved contacts</div>
+                    {assignEmailDropdown.map(em => (
+                      <div
+                        key={em}
+                        onMouseDown={() => {
+                          setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
+                          setNewEmailInput('');
+                          setAssignEmailDropdown([]);
+                        }}
+                        style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', cursor: 'pointer', color: '#1d4ed8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'white' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                      >
+                        <Mail size={13} color="#93c5fd" />{em}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: '#374151' }}>
+                <strong>Please expect a response within 24 hours to <a href="mailto:athens-ec@caaoa.in" style={{ color: '#2563eb' }}>athens-ec@caaoa.in</a></strong>
+              </p>
+            </div>
+
+            {/* ── Photo Attachments (up to 5) ── */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>(up to 5)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                {[0,1,2,3,4].map(slot => {
+                  const newUrl = form._images?.[slot];
+                  const removing = form._removeImages?.[slot];
+                  const existingUrl = removing ? null : (edit ? images[edit.id]?.[slot] : null);
+                  const displayUrl = newUrl || existingUrl;
+                  return (
+                    <div key={slot}>
+                      {displayUrl ? (
+                        <div style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', border: '2px solid #e5e7eb' }}>
+                          <img src={displayUrl} alt={`photo ${slot+1}`} style={{ width: '100%', height: '90px', objectFit: 'cover', display: 'block' }} />
+                          <button onClick={() => setForm(f => {
+                            const imgs = [...(f._images||[null,null,null,null,null])];
+                            const rems = [...(f._removeImages||[false,false,false,false,false])];
+                            if (imgs[slot]) { imgs[slot] = null; }
+                            else { rems[slot] = true; }
+                            return { ...f, _images: imgs, _removeImages: rems };
+                          })} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.65)', border: 'none', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
+                            <X size={10} />
+                          </button>
+                          <div style={{ fontSize: '0.65rem', color: '#9ca3af', textAlign: 'center', padding: '2px' }}>Photo {slot+1}</div>
+                        </div>
+                      ) : (
+                        <div onClick={() => fileRefs[slot].current?.click()}
+                          style={{ border: '2px dashed #d1d5db', borderRadius: '8px', height: '110px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#d1d5db', transition: 'border-color 0.2s, color 0.2s' }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor='#667eea'; e.currentTarget.style.color='#667eea'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor='#d1d5db'; e.currentTarget.style.color='#d1d5db'; }}>
+                          <Image size={20} />
+                          <div style={{ fontSize: '0.7rem', marginTop: '4px', fontWeight: 600 }}>Photo {slot+1}</div>
+                        </div>
+                      )}
+                      <input ref={fileRefs[slot]} type="file" accept="image/*" onChange={e => handleImageSelect(e, slot)} style={{ display: 'none' }} />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Task summary */}
-            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
-              <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{assignTask.title}</div>
-              <div style={{ color: '#6b7280' }}>{assignTask.category} · {assignTask.priority.toUpperCase()} · Due: {assignTask.dueDate}</div>
-            </div>
-
-            {/* Assignee fields */}
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#374151', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee Name</label>
-            <input
-              value={assignForm.assigneeName}
-              onChange={e => setAssignForm({ ...assignForm, assigneeName: e.target.value })}
-              placeholder="e.g. Ravi Kumar"
-              style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.95rem' }}
-            />
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#374151', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee Email</label>
-            <input
-              type="email"
-              value={assignForm.assigneeEmail}
-              onChange={e => setAssignForm({ ...assignForm, assigneeEmail: e.target.value })}
-              placeholder="e.g. ravi@vendor.com"
-              style={{ width: '100%', padding: '0.75rem', marginBottom: '1.25rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.95rem' }}
-            />
-
-            {/* Email preview */}
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#166534' }}>
-              <div style={{ fontWeight: 700, marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Paperclip size={12} /> Email will include:</div>
-              <div>✅ Full task details with Ticket Number</div>
-              <div>✅ <strong>"Please reply with Ticket Number to athens-ec@caaoa.in within 24 hours."</strong></div>
-              <div>✅ Instruction to <strong>attach pictures</strong> when replying</div>
-              <div>✅ CC'd to athens-ec@caaoa.in automatically</div>
-            </div>
-
             <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setAssignModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={sendAssignmentEmail} style={{ flex: 2, padding: '0.75rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                <Mail size={16} /> Send Assignment Email
-              </button>
+              <button onClick={() => setModal(false)} style={{ flex: 1, padding: '0.75rem', background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveTask} style={{ flex: 1, padding: '0.75rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
             </div>
           </div>
         </div>
@@ -638,6 +2568,27 @@ const App = () => {
               })}
             </div>
             <button onClick={() => setLogModal(false)} style={{ width: '100%', padding: '0.75rem', marginTop: '1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Image Lightbox ── */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <img src={lightbox.src} alt={lightbox.title} style={{ maxWidth: '88vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: '8px', display: 'block' }} />
+            <div style={{ color: 'white', textAlign: 'center', marginTop: '0.75rem', fontWeight: 600, fontSize: '0.95rem' }}>
+              {lightbox.title}{lightbox.all?.length > 1 ? ` · ${lightbox.idx + 1}/${lightbox.all.length}` : ''}
+            </div>
+            {lightbox.all?.length > 1 && (
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem' }}>
+                {lightbox.all.map((s, i) => (
+                  <img key={i} src={s} onClick={() => setLightbox(lb => ({ ...lb, src: s, idx: i }))}
+                    style={{ width: '56px', height: '40px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer', border: i === lightbox.idx ? '2px solid #667eea' : '2px solid transparent', opacity: i === lightbox.idx ? 1 : 0.6 }} />
+                ))}
+              </div>
+            )}
+            <button onClick={() => setLightbox(null)} style={{ position: 'absolute', top: '-12px', right: '-12px', background: '#ef4444', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}><X size={16} /></button>
           </div>
         </div>
       )}
