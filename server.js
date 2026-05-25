@@ -11,7 +11,7 @@ const dataDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 
 const getData = (key) => {
-  const file = path.join(dataDir, ``${key}.json``);
+  const file = path.join(dataDir, `${key}.json`);
   if (fs.existsSync(file)) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   }
@@ -19,7 +19,7 @@ const getData = (key) => {
 };
 
 const setData = (key, data) => {
-  const file = path.join(dataDir, ``${key}.json``);
+  const file = path.join(dataDir, `${key}.json`);
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 };
 
@@ -71,7 +71,7 @@ app.post('/api/logs', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(Local API server running on http://localhost:);
+  console.log(`Local API server running on http://localhost:${PORT}`);
 });
 
 // GET /api/images?id=taskId — returns { images: [dataUrl|null, ...] } (3 slots)
