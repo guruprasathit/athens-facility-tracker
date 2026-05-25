@@ -69,7 +69,7 @@ async function kvFetch(path, options = {}, retries = 3, delayMs = 300) {
         console.warn(`[KV] Attempt ${attempt} failed (${err.code || err.name}), retrying in ${delayMs}ms...`);
         await new Promise(r => setTimeout(r, delayMs * attempt)); // exponential backoff
         continue;
-      }
+}
 
       // Enrich error message for ENOTFOUND
       if (err.cause?.code === "ENOTFOUND" || err.code === "ENOTFOUND") {
@@ -175,7 +175,7 @@ function handleFallbackAuth(req, res, kvError = null, username, password) {
       error: "Authentication service unavailable",
       detail: process.env.NODE_ENV === "development" ? kvError : undefined,
       hint: "Check Vercel KV environment variables in your dashboard",
-    });
+  });
   }
 
   const fallbackUser = FALLBACK_USERS[username?.toLowerCase()];
