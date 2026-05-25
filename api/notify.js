@@ -211,7 +211,7 @@ async function sendEmail(apiKey, task) {
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM, to: task.assignedEmail, subject, html: emailHtml(task, subject) }),
+    body: JSON.stringify({ from: FROM, to: task.assignedEmail, cc: ['athens-ec@caaoa.in'], subject, html: emailHtml(task, subject) }),
   });
   return emailRes;
 }
@@ -253,7 +253,7 @@ export default async function handler(req, res) {
           const r = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: FROM, to: email, subject, html, attachments: [attachment] }),
+            body: JSON.stringify({ from: FROM, to: email, cc: ['athens-ec@caaoa.in'], subject, html, attachments: [attachment] }),
           });
           if (r.ok) {
             sent++;

@@ -462,6 +462,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails: emailsToNotify,
+          cc: ['athens-ec@caaoa.in'],
           tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
         }),
       }).catch(e => console.error('Auto-notify failed:', e));
@@ -517,6 +518,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails,
+          cc: ['athens-ec@caaoa.in'],
           tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: task.comments || [] }],
         }),
       });
@@ -555,7 +557,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails: finalTo,
-          cc: finalCc.length > 0 ? finalCc : undefined,
+          cc: [...(finalCc.length > 0 ? finalCc : []), 'athens-ec@caaoa.in'],
           message: `💬 ${user.name || user.username} mentioned you in a comment:\n\n"${text}"`,
           tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: [...existing, comment] }]
         })
