@@ -10,6 +10,24 @@ const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const SEND_DELAY_MS = 500; // stay within Resend's 2 req/s rate limit
 
+// Resolve the app's public base URL for share links
+const APP_BASE_URL = process.env.APP_URL
+  || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
+function viewLinkHtml(viewLink) {
+  if (!viewLink) return '';
+  return `
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb">
+      <a href="${viewLink}" target="_blank"
+         style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;letter-spacing:0.02em">
+        &#128065; View Live Dashboard (Read-Only)
+      </a>
+      <div style="margin-top:8px;font-size:11px;color:#9ca3af">
+        This is a view-only link — no login required. Valid while the link is active.
+      </div>
+    </div>`;
+}
+
 function commentsHtml(comments) {
   if (!Array.isArray(comments) || comments.length === 0) return '';
   const rows = comments.map(c => {
@@ -26,7 +44,7 @@ function commentsHtml(comments) {
   </div>`;
 }
 
-function pdfBacklogEmailHtml(taskCount, customMessage) {
+function pdfBacklogEmailHtml(taskCount, customMessage, viewLink) {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -41,6 +59,7 @@ function pdfBacklogEmailHtml(taskCount, customMessage) {
       <p style="margin:0 0 16px;color:#374151;font-size:15px">Please find attached the backlog report for <strong>${taskCount} task${taskCount !== 1 ? 's' : ''}</strong> currently awaiting action.</p>
       <p style="margin:0 0 20px;color:#6b7280;font-size:13px">Open the attached PDF to view full task details including descriptions, priorities, categories, due dates, and photos.</p>
       <p style="margin:0;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to review and update these tasks.</p>
+      ${viewLinkHtml(viewLink)}
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This notification was sent by an administrator of the Athens Community Facility Tracker.
@@ -50,7 +69,7 @@ function pdfBacklogEmailHtml(taskCount, customMessage) {
 </html>`;
 }
 
-function taskNotifyEmailHtml(task, cidRefs, customMessage, subject) {
+function taskNotifyEmailHtml(task, cidRefs, customMessage, subject, viewLink) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
   const imageSection = cidRefs.length > 0 ? `
@@ -89,6 +108,7 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage, subject) {
         <strong style="color:#c2410c;font-size:14px;display:block;margin-bottom:8px">Please reply with Ticket Number to <a href="mailto:athens-ec@caaoa.in?subject=Re%3A%20${encodeURIComponent(subject || '')}" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
         <span style="color:#92400e;font-size:13px;display:flex;align-items:center;gap:6px">&#128248; Please also <strong>attach pictures</strong> of the completed work or current progress when replying.</span>
       </div>
+      ${viewLinkHtml(viewLink)}
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This notification was sent by an administrator of the Athens Community Facility Tracker.
@@ -98,7 +118,7 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage, subject) {
 </html>`;
 }
 
-function backlogEmailHtml(backlogTasks, customMessage) {
+function backlogEmailHtml(backlogTasks, customMessage, viewLink) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' };
   const rows = backlogTasks.map(task => {
     const pc = priorityColor[task.priority] || '#6b7280';
@@ -142,6 +162,7 @@ function backlogEmailHtml(backlogTasks, customMessage) {
         <strong style="color:#c2410c;font-size:14px;display:block;margin-bottom:8px">Please reply with Ticket Number to <a href="mailto:athens-ec@caaoa.in" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
         <span style="color:#92400e;font-size:13px;display:flex;align-items:center;gap:6px">&#128248; Please also <strong>attach pictures</strong> of the completed work or current progress when replying.</span>
       </div>
+      ${viewLinkHtml(viewLink)}
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This notification was sent by an administrator of the Athens Community Facility Tracker.
@@ -151,7 +172,7 @@ function backlogEmailHtml(backlogTasks, customMessage) {
 </html>`;
 }
 
-function emailHtml(task, subject) {
+function emailHtml(task, subject, viewLink) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -190,6 +211,7 @@ function emailHtml(task, subject) {
         <strong style="color:#c2410c;font-size:14px;display:block;margin-bottom:8px">Please reply with Ticket Number to <a href="mailto:athens-ec@caaoa.in?subject=Re%3A%20${encodeURIComponent(subject || '')}" style="color:#c2410c">athens-ec@caaoa.in</a> within 24 hours.</strong>
         <span style="color:#92400e;font-size:13px;display:flex;align-items:center;gap:6px">&#128248; Please also <strong>attach pictures</strong> of the completed work or current progress when replying.</span>
       </div>
+      ${viewLinkHtml(viewLink)}
     </div>
     <div style="background:#f9fafb;padding:16px 32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center">
       This is an automated alert from the Athens Community Facility Tracker.
@@ -199,7 +221,7 @@ function emailHtml(task, subject) {
 </html>`;
 }
 
-async function sendEmail(apiKey, task) {
+async function sendEmail(apiKey, task, viewLink) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const due = new Date(task.dueDate + 'T00:00:00');
   const diffDays = Math.ceil((today - due) / 86400000);
@@ -211,7 +233,7 @@ async function sendEmail(apiKey, task) {
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM, to: task.assignedEmail, cc: ['athens-ec@caaoa.in'], subject, html: emailHtml(task, subject) }),
+    body: JSON.stringify({ from: FROM, to: task.assignedEmail, cc: ['athens-ec@caaoa.in'], subject, html: emailHtml(task, subject, viewLink) }),
   });
   return emailRes;
 }
@@ -228,6 +250,17 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'RESEND_API_KEY environment variable is not set' });
   }
 
+  // ── Resolve latest active share link (view-only dashboard) ───────────────────
+  let viewLink = '';
+  try {
+    const shareList = await get('share:list') || [];
+    if (shareList.length > 0) {
+      const latestToken = shareList[shareList.length - 1].token;
+      const base = APP_BASE_URL || `https://${req.headers.host}`;
+      viewLink = `${base}/?share=${latestToken}`;
+    }
+  } catch { /* silently skip if KV unavailable */ }
+
   // ── Bulk backlog notify (POST) — one email per task per recipient ─────────────
   if (req.method === 'POST') {
     const { emails, cc: ccEmails, message, tasks: payloadTasks, pdfBase64, taskCount } = req.body || {};
@@ -239,7 +272,7 @@ export default async function handler(req, res) {
     if (pdfBase64) {
       const count = typeof taskCount === 'number' ? taskCount : 0;
       const subject = `[Athens Tracker] Backlog Report — ${count} task${count !== 1 ? 's' : ''}`;
-      const html = pdfBacklogEmailHtml(count, message || '');
+      const html = pdfBacklogEmailHtml(count, message || '', viewLink);
       const attachment = {
         filename: `Athens_Backlog_${new Date().toISOString().split('T')[0]}.pdf`,
         content: pdfBase64,
@@ -297,7 +330,7 @@ export default async function handler(req, res) {
       const cidRefs = attachments.map(a => a.content_id);
 
       const subject = `[Athens Tracker] Backlog: ${task.title}`;
-      const html = taskNotifyEmailHtml(task, cidRefs, message || '', subject);
+      const html = taskNotifyEmailHtml(task, cidRefs, message || '', subject, viewLink);
 
       // If cc is provided, send one email with to (array) + cc instead of looping per recipient
       if (Array.isArray(ccEmails) && ccEmails.length > 0) {
@@ -363,7 +396,7 @@ export default async function handler(req, res) {
     let sent = 0;
     for (let i = 0; i < emails.length; i++) {
       try {
-        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: emails[i] });
+        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: emails[i] }, viewLink);
         if (emailRes.ok) { sent++; results.push({ email: emails[i], status: 'sent' }); }
         else { const b = await emailRes.json().catch(() => ({})); results.push({ email: emails[i], status: 'failed', error: b.message || emailRes.statusText }); }
       } catch (err) {
@@ -395,7 +428,7 @@ export default async function handler(req, res) {
         continue;
       }
       try {
-        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: email });
+        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: email }, viewLink);
         if (emailRes.ok) {
           await set(notifKey, { sentAt: new Date().toISOString(), email });
           results.push({ taskId: task.id, email, status: 'sent' });
