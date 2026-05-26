@@ -196,7 +196,7 @@ function emailHtml(task, subject) {
 </html>`;
 }
 
-async function sendEmail(apiKey, task) {
+async function sendEmail(apiKey, task, toEmails) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const due = new Date(task.dueDate + 'T00:00:00');
   const diffDays = Math.ceil((today - due) / 86400000);
@@ -205,10 +205,11 @@ async function sendEmail(apiKey, task) {
     ? `[Overdue ${diffDays}d] ${task.title} — Athens Community Facility Tracker`
     : `[Reminder] ${task.title} — Athens Community Facility Tracker`;
 
+  const to = toEmails && toEmails.length > 0 ? toEmails : [task.assignedEmail];
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM, to: task.assignedEmail, subject, html: emailHtml(task, subject) }),
+    body: JSON.stringify({ from: FROM, to, subject, html: emailHtml(task, subject) }),
   });
   return emailRes;
 }
@@ -358,15 +359,17 @@ export default async function handler(req, res) {
 
     const results = [];
     let sent = 0;
-    for (let i = 0; i < emails.length; i++) {
-      try {
-        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: emails[i] });
-        if (emailRes.ok) { sent++; results.push({ email: emails[i], status: 'sent' }); }
-        else { const b = await emailRes.json().catch(() => ({})); results.push({ email: emails[i], status: 'failed', error: b.message || emailRes.statusText }); }
-      } catch (err) {
-        results.push({ email: emails[i], status: 'error', error: err.message });
+    try {
+      const emailRes = await sendEmail(apiKey, task, emails);
+      if (emailRes.ok) {
+        sent = emails.length;
+        emails.forEach(e => results.push({ email: e, status: 'sent' }));
+      } else {
+        const b = await emailRes.json().catch(() => ({}));
+        emails.forEach(e => results.push({ email: e, status: 'failed', error: b.message || emailRes.statusText }));
       }
-      if (i < emails.length - 1) await sleep(SEND_DELAY_MS);
+    } catch (err) {
+      emails.forEach(e => results.push({ email: e, status: 'error', error: err.message }));
     }
     return res.status(200).json({ success: sent > 0, sent, total: emails.length, task: task.title, results });
   }
@@ -383,27 +386,23 @@ export default async function handler(req, res) {
   const results = [];
   for (const task of overdue) {
     const emails = getTaskEmails(task);
-    for (let ei = 0; ei < emails.length; ei++) {
-      const email = emails[ei];
-      const notifKey = `notif:${task.id}:${email}:${todayStr}`;
-      const alreadySent = await get(notifKey);
-      if (alreadySent) {
-        results.push({ taskId: task.id, email, status: 'already_sent' });
-        continue;
+    const notifKey = `notif:${task.id}:${todayStr}`;
+    const alreadySent = await get(notifKey);
+    if (alreadySent) {
+      results.push({ taskId: task.id, emails, status: 'already_sent' });
+      continue;
+    }
+    try {
+      const emailRes = await sendEmail(apiKey, task, emails);
+      if (emailRes.ok) {
+        await set(notifKey, { sentAt: new Date().toISOString(), emails });
+        emails.forEach(e => results.push({ taskId: task.id, email: e, status: 'sent' }));
+      } else {
+        const body = await emailRes.json().catch(() => ({}));
+        emails.forEach(e => results.push({ taskId: task.id, email: e, status: 'failed', error: body.message || emailRes.statusText }));
       }
-      try {
-        const emailRes = await sendEmail(apiKey, { ...task, assignedEmail: email });
-        if (emailRes.ok) {
-          await set(notifKey, { sentAt: new Date().toISOString(), email });
-          results.push({ taskId: task.id, email, status: 'sent' });
-        } else {
-          const body = await emailRes.json().catch(() => ({}));
-          results.push({ taskId: task.id, email, status: 'failed', error: body.message || emailRes.statusText });
-        }
-      } catch (err) {
-        results.push({ taskId: task.id, email, status: 'error', error: err.message });
-      }
-      if (ei < emails.length - 1) await sleep(SEND_DELAY_MS);
+    } catch (err) {
+      emails.forEach(e => results.push({ taskId: task.id, email: e, status: 'error', error: err.message }));
     }
   }
 
