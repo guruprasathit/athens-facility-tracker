@@ -462,6 +462,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails: emailsToNotify,
+          cc: ['athens-ec@caaoa.in'],
           tasks: [{ id: savedTask.id, title: savedTask.title, description: savedTask.description, priority: savedTask.priority, category: savedTask.category, dueDate: savedTask.dueDate, status: savedTask.status, comments: savedTask.comments || [] }],
         }),
       }).catch(e => console.error('Auto-notify failed:', e));
@@ -517,6 +518,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails,
+          cc: ['athens-ec@caaoa.in'],
           tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: task.comments || [] }],
         }),
       });
@@ -555,7 +557,7 @@ const App = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emails: finalTo,
-          cc: finalCc.length > 0 ? finalCc : undefined,
+          cc: [...(finalCc.length > 0 ? finalCc : []), 'athens-ec@caaoa.in'],
           message: `💬 ${user.name || user.username} mentioned you in a comment:\n\n"${text}"`,
           tasks: [{ id: task.id, title: task.title, description: task.description, priority: task.priority, category: task.category, dueDate: task.dueDate, status: task.status, comments: [...existing, comment] }]
         })
@@ -2410,7 +2412,7 @@ const App = () => {
             </select>
             <input type="date" value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box' }} />
             <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email(s) <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — receives overdue alerts)</span></div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={13} />Assign to Email(s) <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional — paste multiple emails separated by commas)</span></div>
               {(form.assignedEmails || []).length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
                   {(form.assignedEmails || []).map((em, i) => (
@@ -2424,48 +2426,61 @@ const App = () => {
               <div style={{ position: 'relative' }}>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input
-                    type="email"
+                    type="text"
                     value={newEmailInput}
                     onChange={e => {
                       const val = e.target.value;
                       setNewEmailInput(val);
-                      const q = val.trim().toLowerCase();
-                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
-                      const filtered = pool.filter(em => em.includes(q) && !(form.assignedEmails || []).includes(em));
-                      setAssignEmailDropdown(q.length > 0 ? filtered : pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                      // Show dropdown only when typing a single email (no commas yet)
+                      if (!val.includes(',')) {
+                        const q = val.trim().toLowerCase();
+                        const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                        const filtered = pool.filter(em => em.includes(q) && !(form.assignedEmails || []).includes(em));
+                        setAssignEmailDropdown(q.length > 0 ? filtered : pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                      } else {
+                        setAssignEmailDropdown([]);
+                      }
                     }}
                     onFocus={() => {
-                      const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
-                      setAssignEmailDropdown(pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                      if (!newEmailInput.includes(',')) {
+                        const pool = [...new Set([...mentionEmailPool, ...tasks.flatMap(t => t.assignedEmails || [])])];
+                        setAssignEmailDropdown(pool.filter(em => !(form.assignedEmails || []).includes(em)));
+                      }
                     }}
                     onBlur={() => setTimeout(() => setAssignEmailDropdown([]), 150)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        const em = newEmailInput.trim().toLowerCase();
-                        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
-                          setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
-                          addEmailToPool(em);
+                        // Parse comma-separated bulk emails
+                        const parsed = newEmailInput.split(/[,;]+/)
+                          .map(s => s.trim().toLowerCase())
+                          .filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && !(form.assignedEmails || []).includes(s));
+                        if (parsed.length > 0) {
+                          parsed.forEach(em => addEmailToPool(em));
+                          setForm(f => ({ ...f, assignedEmails: [...new Set([...(f.assignedEmails || []), ...parsed])] }));
                           setNewEmailInput('');
                           setAssignEmailDropdown([]);
                         }
                       }
                       if (e.key === 'Escape') setAssignEmailDropdown([]);
                     }}
-                    placeholder="e.g. manager@example.com"
+                    placeholder="e.g. a@example.com, b@example.com, c@example.com"
                     style={{ flex: 1, padding: '0.75rem', border: '2px solid #e5e7eb', borderRadius: '8px', boxSizing: 'border-box', fontSize: '0.875rem' }}
                   />
                   <button
                     type="button"
                     onClick={() => {
-                      const em = newEmailInput.trim().toLowerCase();
-                      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) && !(form.assignedEmails || []).includes(em)) {
-                        setForm(f => ({ ...f, assignedEmails: [...(f.assignedEmails || []), em] }));
-                        addEmailToPool(em);
+                      // Parse comma-separated bulk emails
+                      const parsed = newEmailInput.split(/[,;]+/)
+                        .map(s => s.trim().toLowerCase())
+                        .filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && !(form.assignedEmails || []).includes(s));
+                      if (parsed.length > 0) {
+                        parsed.forEach(em => addEmailToPool(em));
+                        setForm(f => ({ ...f, assignedEmails: [...new Set([...(f.assignedEmails || []), ...parsed])] }));
                         setNewEmailInput('');
                         setAssignEmailDropdown([]);
-                      } else if (newEmailInput.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailInput.trim())) {
-                        alert('Please enter a valid email address.');
+                      } else if (newEmailInput.trim()) {
+                        alert('No valid email addresses found. Separate multiple emails with commas.');
                       }
                     }}
                     style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}
