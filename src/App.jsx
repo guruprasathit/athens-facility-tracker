@@ -85,7 +85,7 @@ const App = () => {
 
   const compressImage = (file) => new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) { reject(new Error('File must be an image')); return; }
-    if (file.size > 5 * 1024 * 1024) { reject(new Error('Image must be under 5 MB')); return; }
+    if (file.size > 10 * 1024 * 1024) { reject(new Error('Image must be under 10 MB')); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new window.Image();
@@ -2514,10 +2514,10 @@ const App = () => {
               </p>
             </div>
 
-            {/* ── Photo Attachments ── */}
+            {/* ── Photo Attachments (up to 5) ── */}
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>· up to 5 MB each</span>
+                <Paperclip size={13} />Photo Attachments <span style={{ fontWeight: 400, color: '#9ca3af' }}>(up to 5)</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 {[0,1,2,3,4].map(slot => {
