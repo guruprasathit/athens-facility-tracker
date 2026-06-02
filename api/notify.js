@@ -172,7 +172,7 @@ function backlogEmailHtml(backlogTasks, customMessage, viewLink) {
 </html>`;
 }
 
-function emailHtml(task, subject, viewLink) {
+function emailHtml(task, subject, viewLink, cidRefs = []) {
   const priorityColor = { low: '#10b981', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[task.priority] || '#6b7280';
   const categoryLabel = task.category ? task.category.charAt(0).toUpperCase() + task.category.slice(1).replace(/-/g, ' ') : '';
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -183,6 +183,13 @@ function emailHtml(task, subject, viewLink) {
   const bodyText = isOverdue
     ? `The following task assigned to you is <strong style="color:#ef4444">${diffDays} day${diffDays === 1 ? '' : 's'} overdue</strong> and still open:`
     : `This is a reminder about the following task assigned to you:`;
+  const imageSection = cidRefs.length > 0 ? `
+    <div style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">📷 Photos (${cidRefs.length})</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${cidRefs.map((cid, i) => `<img src="cid:${cid}" alt="Photo ${i + 1}" style="max-width:180px;max-height:180px;border-radius:8px;border:1px solid #e5e7eb;object-fit:cover" />`).join('')}
+      </div>
+    </div>` : '';
 
   return `<!DOCTYPE html>
 <html>
@@ -204,6 +211,7 @@ function emailHtml(task, subject, viewLink) {
           <span style="background:${isOverdue ? '#fee2e2' : '#dbeafe'};color:${isOverdue ? '#ef4444' : '#3b82f6'};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">Due: ${task.dueDate}</span>
           <span style="background:#f3f4f6;color:#374151;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">Status: ${(task.status || '').replace('-', ' ').toUpperCase()}</span>
         </div>
+        ${imageSection}
         ${commentsHtml(task.comments)}
       </div>
       <p style="margin:0 0 16px;color:#6b7280;font-size:13px">Please log in to the Athens Community Facility Tracker to update or complete this task.</p>
@@ -231,10 +239,29 @@ async function sendEmail(apiKey, task, toEmails, viewLink) {
     : `[Reminder] ${task.title} — Athens Community Facility Tracker`;
 
   const to = toEmails && toEmails.length > 0 ? toEmails : [task.assignedEmail];
+
+  // Fetch task images from KV and build CID attachments
+  const rawImages = await Promise.all([
+    get(`img:${task.id}:0`), get(`img:${task.id}:1`), get(`img:${task.id}:2`),
+  ]);
+  const attachments = rawImages
+    .filter(img => img && img.dataUrl)
+    .map((img, i) => {
+      const match = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      const content_type = match ? match[1] : 'image/jpeg';
+      const content = match ? match[2] : img.dataUrl;
+      const cid = `task${task.id}_photo${i}`;
+      return { filename: img.name || `photo${i + 1}.jpg`, content, content_type, content_id: cid };
+    });
+  const cidRefs = attachments.map(a => a.content_id);
+
+  const payload = { from: FROM, to, cc: ['athens-ec@caaoa.in'], subject, html: emailHtml(task, subject, viewLink, cidRefs) };
+  if (attachments.length > 0) payload.attachments = attachments;
+
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM, to, cc: ['athens-ec@caaoa.in'], subject, html: emailHtml(task, subject, viewLink) }),
+    body: JSON.stringify(payload),
   });
   return emailRes;
 }
@@ -429,7 +456,7 @@ export default async function handler(req, res) {
       continue;
     }
     try {
-      const emailRes = await sendEmail(apiKey, task, emails);
+      const emailRes = await sendEmail(apiKey, task, emails, viewLink);
       if (emailRes.ok) {
         await set(notifKey, { sentAt: new Date().toISOString(), emails });
         emails.forEach(e => results.push({ taskId: task.id, email: e, status: 'sent' }));
