@@ -85,6 +85,9 @@ function taskNotifyEmailHtml(task, cidRefs, customMessage, subject, viewLink) {
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:system-ui,sans-serif">
   <div style="max-width:600px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:#b45309;padding:10px 32px;text-align:center">
+      <span style="color:white;font-size:13px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase">📌 ACTION REQUIRED — PLEASE RESPOND WITHIN 24 HOURS</span>
+    </div>
     <div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:28px 32px">
       <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Athens Community Facility Tracker</div>
       <h1 style="margin:0;color:white;font-size:22px;font-weight:700">📋 Backlog Task</h1>
@@ -137,6 +140,9 @@ function backlogEmailHtml(backlogTasks, customMessage, viewLink) {
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:system-ui,sans-serif">
   <div style="max-width:640px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+    <div style="background:#b45309;padding:10px 32px;text-align:center">
+      <span style="color:white;font-size:13px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase">📌 ACTION REQUIRED — PLEASE RESPOND WITHIN 24 HOURS</span>
+    </div>
     <div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:28px 32px">
       <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Athens Community Facility Tracker</div>
       <h1 style="margin:0;color:white;font-size:22px;font-weight:700">📋 Backlog Task Summary</h1>
@@ -180,6 +186,9 @@ function emailHtml(task, subject, viewLink, cidRefs = []) {
   const diffDays = Math.ceil((today - due) / 86400000);
   const isOverdue = diffDays > 0 && task.status !== 'done';
   const headerText = isOverdue ? `⚠️ Task Overdue Alert` : `📋 Task Reminder`;
+  const headerBg = isOverdue
+    ? 'background:linear-gradient(135deg,#dc2626,#b91c1c)'
+    : 'background:linear-gradient(135deg,#667eea,#764ba2)';
   const bodyText = isOverdue
     ? `The following task assigned to you is <strong style="color:#ef4444">${diffDays} day${diffDays === 1 ? '' : 's'} overdue</strong> and still open:`
     : `This is a reminder about the following task assigned to you:`;
@@ -196,7 +205,10 @@ function emailHtml(task, subject, viewLink, cidRefs = []) {
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:system-ui,sans-serif">
   <div style="max-width:560px;margin:32px auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-    <div style="background:linear-gradient(135deg,#667eea,#764ba2);padding:28px 32px">
+    ${isOverdue ? `<div style="background:#dc2626;padding:10px 32px;text-align:center">
+      <span style="color:white;font-size:13px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase">🚨 PRIORITY — IMMEDIATE ACTION REQUIRED 🚨</span>
+    </div>` : ''}
+    <div style="${headerBg};padding:28px 32px">
       <div style="color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Athens Community Facility Tracker</div>
       <h1 style="margin:0;color:white;font-size:22px;font-weight:700">${headerText}</h1>
     </div>
@@ -235,7 +247,7 @@ async function sendEmail(apiKey, task, toEmails, viewLink) {
   const diffDays = Math.ceil((today - due) / 86400000);
   const isOverdue = diffDays > 0 && task.status !== 'done';
   const subject = isOverdue
-    ? `[Overdue ${diffDays}d] ${task.title} — Athens Community Facility Tracker`
+    ? `[ACTION REQUIRED] Overdue ${diffDays}d: ${task.title} — Athens Facility Tracker`
     : `[Reminder] ${task.title} — Athens Community Facility Tracker`;
 
   const to = toEmails && toEmails.length > 0 ? toEmails : [task.assignedEmail];
