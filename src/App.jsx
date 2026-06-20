@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield, Share2, Copy, Check } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Paperclip, X, ZoomIn, Image, Mail, Send, MessageSquare, FileText, Shield, Share2, Copy, Check, Bell, BellOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 
@@ -38,6 +38,7 @@ const App = () => {
   const [viewerChecking, setViewerChecking] = useState(() => !!(new URLSearchParams(window.location.search).get('share')));
   const [viewerTokenError, setViewerTokenError] = useState('');
   const [viewerExited, setViewerExited] = useState(false);
+  const [overdueAlertsEnabled, setOverdueAlertsEnabled] = useState(true);
 
   const LABELS = [
     { key: 'common-area', label: 'Common Area', color: '#0ea5e9' },
@@ -149,6 +150,9 @@ const App = () => {
     if (user) {
       loadData(true);
       const interval = setInterval(() => loadData(false), 30000);
+      if (user.role === 'admin') {
+        fetch('/api/settings').then(r => r.ok ? r.json() : null).then(d => { if (d) setOverdueAlertsEnabled(d.overdueAlertsEnabled !== false); }).catch(() => {});
+      }
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -347,6 +351,14 @@ const App = () => {
       setIsRegistering(false);
       setIsForgotPassword(false);
     }, 500);
+  };
+
+  const toggleOverdueAlerts = async () => {
+    const newVal = !overdueAlertsEnabled;
+    setOverdueAlertsEnabled(newVal);
+    try {
+      await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overdueAlertsEnabled: newVal }) });
+    } catch { setOverdueAlertsEnabled(!newVal); }
   };
 
   const generateShareLink = async () => {
@@ -1413,6 +1425,13 @@ const App = () => {
               <div style={{ padding: '0.75rem 1rem', background: status === 'ready' ? '#d1fae5' : status === 'syncing' ? '#fef3c7' : '#fee2e2', color: status === 'ready' ? '#10b981' : status === 'syncing' ? '#f59e0b' : '#ef4444', borderRadius: '8px', fontWeight: 600, display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Database size={16} />{status}</div>
               {user?.role === 'admin' && <button onClick={() => { setShareLink(''); setShareModal(true); }} style={{ padding: '0.75rem 1rem', background: 'white', color: '#10b981', border: '2px solid #10b981', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Share2 size={16} />Share</button>}
               {user?.role === 'admin' && <button onClick={() => setLogModal(true)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Activity size={16} />Log</button>}
+              {user?.role === 'admin' && (
+                <button onClick={toggleOverdueAlerts} title={overdueAlertsEnabled ? 'Overdue mail alerts ON — click to disable' : 'Overdue mail alerts OFF — click to enable'}
+                  style={{ padding: '0.75rem 1rem', background: overdueAlertsEnabled ? '#fef3c7' : 'white', color: overdueAlertsEnabled ? '#b45309' : '#9ca3af', border: `2px solid ${overdueAlertsEnabled ? '#fcd34d' : '#d1d5db'}`, borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {overdueAlertsEnabled ? <Bell size={16} /> : <BellOff size={16} />}
+                  {overdueAlertsEnabled ? 'Alerts ON' : 'Alerts OFF'}
+                </button>
+              )}
               <button onClick={() => loadData(false)} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><RefreshCw size={16} />Refresh</button>
               {!isViewer && <button onClick={exp} style={{ padding: '0.75rem 1rem', background: 'white', color: '#667eea', border: '2px solid #667eea', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Download size={16} />Export</button>}
               {!isViewer && <button onClick={() => open('backlog')} style={{ padding: '0.75rem 1rem', background: '#667eea', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', gap: '0.5rem', alignItems: 'center' }}><Plus size={16} />Add</button>}

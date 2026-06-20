@@ -114,6 +114,18 @@ app.delete('/api/images', (req, res) => {
   res.json({ success: true });
 });
 
+// GET/POST /api/settings
+app.get('/api/settings', (req, res) => {
+  const saved = fileGet('settings') || {};
+  res.json({ overdueAlertsEnabled: true, ...saved });
+});
+app.post('/api/settings', (req, res) => {
+  const saved = fileGet('settings') || {};
+  const updated = { overdueAlertsEnabled: true, ...saved, ...req.body };
+  fileSet('settings', updated);
+  res.json(updated);
+});
+
 // GET /api/notify — local dev stub (emails not sent; requires RESEND_API_KEY in prod)
 app.get('/api/notify', (req, res) => {
   res.json({ message: 'Notify endpoint is only active in production (Vercel). Set RESEND_API_KEY to enable email alerts.' });

@@ -6,6 +6,8 @@
 // Optional env var: NOTIFY_FROM_EMAIL  e.g. "Athens Tracker <alerts@yourdomain.com>"
 import { get, set } from './_storage.js';
 
+const SETTINGS_DEFAULTS = { overdueAlertsEnabled: true };
+
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens Tracker <onboarding@resend.dev>';
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const SEND_DELAY_MS = 500; // stay within Resend's 2 req/s rate limit
@@ -414,6 +416,13 @@ export default async function handler(req, res) {
       }
     }
     return res.status(200).json({ sent, total: payloadTasks.length * emails.length, taskCount: payloadTasks.length, recipientCount: emails.length, results });
+  }
+
+  // ── Daily cron — check if overdue alerts are enabled ─────────────────────────
+  const savedSettings = (await get('settings')) || {};
+  const settings = { ...SETTINGS_DEFAULTS, ...savedSettings };
+  if (!settings.overdueAlertsEnabled) {
+    return res.status(200).json({ skipped: true, reason: 'Overdue alerts are disabled by admin.' });
   }
 
   const tasks = (await get('tasks')) || [];
