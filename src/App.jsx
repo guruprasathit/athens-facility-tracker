@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Mail, X, AlertTriangle, MessageSquare, Send, Tag, Search, Filter, XCircle, FileText, Image } from 'lucide-react';
+import { Plus, Download, Calendar, Clock, CheckCircle2, Circle, Trash2, Edit2, Database, RefreshCw, Activity, User, Mail, X, AlertTriangle, MessageSquare, Send, Tag, Search, Filter, XCircle, FileText, Image, BellOff, Bell } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -961,6 +961,7 @@ export default function App() {
   const [edit, setEdit] = useState(null);
   const [form, setForm] = useState(BLANK_FORM);
   const [toast, setToast] = useState(null);
+  const [overdueAlertsEnabled, setOverdueAlertsEnabled] = useState(true);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -1032,6 +1033,10 @@ export default function App() {
       if (mr.ok) { const md = await mr.json(); if (Array.isArray(md)) setMembers(md); }
     } catch {}
     try {
+      const sr = await fetch(`${API_URL}/settings`);
+      if (sr.ok) { const sd = await sr.json(); setOverdueAlertsEnabled(sd.overdueAlertsEnabled !== false); }
+    } catch {}
+    try {
       const lr = await fetch(`${API_URL}/logs`);
       const existing = await lr.json() || [];
       const entry = { id: Date.now(), timestamp: new Date().toISOString(), user: loggedInUser.username, userName: loggedInUser.name, action: 'LOGIN', taskTitle: '', details: 'User logged in' };
@@ -1042,6 +1047,15 @@ export default function App() {
   };
 
   const logout = () => { const l = addLog('LOGOUT', '', 'User logged out'); saveLogs(l); setTimeout(() => { setUser(null); setTasks([]); setLogs([]); }, 300); };
+
+  const toggleOverdueAlerts = async () => {
+    const newVal = !overdueAlertsEnabled;
+    setOverdueAlertsEnabled(newVal);
+    try {
+      await fetch(`${API_URL}/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overdueAlertsEnabled: newVal }) });
+      showToast(`Overdue mail alerts ${newVal ? 'enabled' : 'disabled'}.`, 'success');
+    } catch { setOverdueAlertsEnabled(!newVal); showToast('Failed to update setting.', 'error'); }
+  };
 
   // ── Task CRUD ─────────────────────────────────────────────────────────────────
 
@@ -1411,6 +1425,13 @@ export default function App() {
               {!isSubcommittee && <div style={{ padding: '6px 12px', background: sc.bg, color: sc.color, borderRadius: 8, fontWeight: 600, fontSize: '0.82rem', display: 'flex', gap: 4, alignItems: 'center' }}><Database size={13} />{status}</div>}
               {!isSubcommittee && <button onClick={() => setLogModal(true)} style={{ padding: '6px 12px', background: 'white', color: '#3b82f6', border: '2px solid #3b82f6', borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}><Activity size={14} />Log</button>}
               {user.role === 'admin' && <button onClick={() => setUsersModal(true)} style={{ padding: '6px 12px', background: 'white', color: '#7c3aed', border: '2px solid #7c3aed', borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}><User size={14} />Users</button>}
+              {user.role === 'admin' && (
+                <button onClick={toggleOverdueAlerts} title={overdueAlertsEnabled ? 'Overdue mail alerts ON — click to disable' : 'Overdue mail alerts OFF — click to enable'}
+                  style={{ padding: '6px 12px', background: overdueAlertsEnabled ? '#fef3c7' : 'white', color: overdueAlertsEnabled ? '#b45309' : '#9ca3af', border: `2px solid ${overdueAlertsEnabled ? '#fcd34d' : '#d1d5db'}`, borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}>
+                  {overdueAlertsEnabled ? <Bell size={14} /> : <BellOff size={14} />}
+                  {overdueAlertsEnabled ? 'Alerts ON' : 'Alerts OFF'}
+                </button>
+              )}
               {!isSubcommittee && <button onClick={() => loadData(false)} style={{ padding: '6px 12px', background: 'white', color: '#3b82f6', border: '2px solid #3b82f6', borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}><RefreshCw size={14} />Refresh</button>}
               {!isSubcommittee && <button onClick={exportXLSX} style={{ padding: '6px 12px', background: 'white', color: '#3b82f6', border: '2px solid #3b82f6', borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}><Download size={14} />Export</button>}
               {user.role === 'admin' && <button onClick={generateReport} style={{ padding: '6px 12px', background: 'linear-gradient(135deg,#1e3a5f,#0f2342)', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center', fontSize: '0.83rem' }}><FileText size={14} />Report</button>}

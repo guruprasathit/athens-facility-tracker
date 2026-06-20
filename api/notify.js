@@ -10,6 +10,8 @@
 
 import { get, set } from './_storage.js';
 
+const SETTINGS_DEFAULTS = { overdueAlertsEnabled: true };
+
 const FROM = process.env.NOTIFY_FROM_EMAIL || 'Athens EC Tasks <onboarding@resend.dev>';
 
 // ── Email templates ────────────────────────────────────────────────────────────
@@ -217,6 +219,12 @@ export default async function handler(req, res) {
   }
 
   // ── 4. Daily cron — overdue alerts (GET /api/notify) ─────────────────────────
+  const savedSettings = (await get('settings')) || {};
+  const settings = { ...SETTINGS_DEFAULTS, ...savedSettings };
+  if (!settings.overdueAlertsEnabled) {
+    return res.status(200).json({ skipped: true, reason: 'Overdue alerts are disabled by admin.' });
+  }
+
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
 
